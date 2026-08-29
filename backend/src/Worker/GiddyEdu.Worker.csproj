@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-GiddyEdu.Worker-a2e56b57-adf7-4618-b5c4-9e275f552955</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BuildingBlocks\GiddyEdu.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\Modules\Platform\GiddyEdu.Modules.Platform.csproj" />
+    <ProjectReference Include="..\Modules\Tenancy\GiddyEdu.Modules.Tenancy.csproj" />
+    <ProjectReference Include="..\Modules\Subscriptions\GiddyEdu.Modules.Subscriptions.csproj" />
+  </ItemGroup>
+</Project>
+

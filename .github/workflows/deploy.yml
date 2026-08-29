@@ -1,0 +1,15 @@
+﻿name: Deploy Placeholder
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  not-configured:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Production deployment is intentionally not configured yet."
+          echo "Add VPS/staging deployment only after environments and secrets are defined."

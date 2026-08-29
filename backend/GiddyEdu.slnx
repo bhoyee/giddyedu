@@ -1,0 +1,38 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Api/">
+    <Project Path="src/Api/GiddyEdu.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/GiddyEdu.BuildingBlocks.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Identity/">
+    <Project Path="src/Modules/Identity/GiddyEdu.Modules.Identity.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Platform/">
+    <Project Path="src/Modules/Platform/GiddyEdu.Modules.Platform.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Subscriptions/">
+    <Project Path="src/Modules/Subscriptions/GiddyEdu.Modules.Subscriptions.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Tenancy/">
+    <Project Path="src/Modules/Tenancy/GiddyEdu.Modules.Tenancy.csproj" />
+  </Folder>
+  <Folder Name="/src/Worker/">
+    <Project Path="src/Worker/GiddyEdu.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/" />
+  <Folder Name="/tests/Architecture/">
+    <Project Path="tests/Architecture/GiddyEdu.ArchitectureTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Integration/">
+    <Project Path="tests/Integration/GiddyEdu.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Security/">
+    <Project Path="tests/Security/GiddyEdu.SecurityTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Unit/">
+    <Project Path="tests/Unit/GiddyEdu.UnitTests.csproj" />
+  </Folder>
+</Solution>

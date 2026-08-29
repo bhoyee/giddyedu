@@ -1,0 +1,62 @@
+﻿# Environment
+.env
+.env.*
+!.env.example
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Node
+node_modules/
+.next/
+dist/
+coverage/
+
+# Expo
+.expo/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Local storage
+data/
+storage/
+
+# Secrets
+*.pem
+*.key
+secrets/
+
+# --------------------------------------------------
+# Local Codex / Project Documentation
+# --------------------------------------------------
+# Keep all Markdown documentation local.
+# This includes AGENTS.md files and documentation
+# under docs/, backend/, web/, mobile/, infrastructure,
+# services/, and any future subdirectories.
+**/*.md
+
+# README.md in the repository root is the ONLY
+# Markdown file that should be committed.
+!/README.md

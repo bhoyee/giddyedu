@@ -1,0 +1,87 @@
+﻿name: giddyedu
+
+services:
+  postgres:
+    image: postgres:18
+    container_name: giddyedu-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: giddyedu
+      POSTGRES_USER: giddyedu
+      POSTGRES_PASSWORD: giddyedu_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - giddyedu-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U giddyedu -d giddyedu"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    container_name: giddyedu-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - giddyedu-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/src/Api/Dockerfile
+    container_name: giddyedu-api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=giddyedu;Username=giddyedu;Password=giddyedu_dev
+      ConnectionStrings__Redis: redis:6379
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/src/Worker/Dockerfile
+    container_name: giddyedu-worker
+    restart: unless-stopped
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=giddyedu;Username=giddyedu;Password=giddyedu_dev
+      ConnectionStrings__Redis: redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    container_name: giddyedu-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  giddyedu-postgres-data:
+  giddyedu-redis-data:

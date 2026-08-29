@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\BuildingBlocks\GiddyEdu.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\Modules\Platform\GiddyEdu.Modules.Platform.csproj" />
+    <ProjectReference Include="..\Modules\Tenancy\GiddyEdu.Modules.Tenancy.csproj" />
+    <ProjectReference Include="..\Modules\Identity\GiddyEdu.Modules.Identity.csproj" />
+    <ProjectReference Include="..\Modules\Subscriptions\GiddyEdu.Modules.Subscriptions.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>
+
