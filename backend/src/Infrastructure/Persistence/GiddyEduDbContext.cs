@@ -21,6 +21,7 @@ public sealed class GiddyEduDbContext(
     public DbSet<TenantRole> TenantRoles => Set<TenantRole>();
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     public DbSet<TenantMembershipRole> TenantMembershipRoles => Set<TenantMembershipRole>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<Plan> Plans => Set<Plan>();
     public DbSet<Feature> Features => Set<Feature>();
     public DbSet<PlanEntitlement> PlanEntitlements => Set<PlanEntitlement>();
@@ -53,12 +54,25 @@ public sealed class GiddyEduDbContext(
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
+        ValidateChanges();
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        ValidateChanges();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    private void ValidateChanges()
+    {
+        if (ChangeTracker.Entries<AuditRecord>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))
+            throw new InvalidOperationException("Audit records are append-only.");
         foreach (var entry in ChangeTracker.Entries<ITenantOwned>().Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted))
         {
             if (!tenantContext.TenantId.HasValue || entry.Entity.TenantId != tenantContext.TenantId.Value)
                 throw new InvalidOperationException("A tenant-owned record cannot be changed outside its trusted tenant context.");
         }
-        return base.SaveChangesAsync(cancellationToken);
     }
 
     private void ApplyTenantFilters(ModelBuilder modelBuilder)
@@ -68,6 +82,7 @@ public sealed class GiddyEduDbContext(
         modelBuilder.Entity<TenantRole>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<RolePermission>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<TenantMembershipRole>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
+        modelBuilder.Entity<RefreshToken>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<TenantSubscription>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<TenantEntitlementOverride>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<CampusEntitlementOverride>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
@@ -97,6 +112,7 @@ public sealed class GiddyEduDbContext(
         b.Entity<RolePermission>(e => { e.ToTable("RolePermissions"); e.HasKey(x => new { x.TenantId, x.RoleId, x.PermissionId }); e.HasOne<TenantRole>().WithMany().HasForeignKey(x => new { x.TenantId, x.RoleId }).HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Cascade); e.HasOne<Permission>().WithMany().HasForeignKey(x => x.PermissionId).OnDelete(DeleteBehavior.Restrict); });
         b.Entity<TenantMembership>(e => e.HasAlternateKey(x => new { x.TenantId, x.Id }));
         b.Entity<TenantMembershipRole>(e => { e.ToTable("TenantMembershipRoles"); e.HasKey(x => new { x.TenantId, x.MembershipId, x.RoleId }); e.HasOne<TenantMembership>().WithMany().HasForeignKey(x => new { x.TenantId, x.MembershipId }).HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Cascade); e.HasOne<TenantRole>().WithMany().HasForeignKey(x => new { x.TenantId, x.RoleId }).HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict); });
+        b.Entity<RefreshToken>(e => { e.ToTable("RefreshTokens"); e.HasKey(x => x.Id); e.HasIndex(x => x.TokenHash).IsUnique(); e.HasIndex(x => new { x.TenantId, x.UserId, x.ExpiresAtUtc }); e.Property(x => x.TokenHash).HasMaxLength(64); });
     }
 
     private static void ConfigureSubscriptions(ModelBuilder b)
@@ -122,6 +138,6 @@ public sealed class GiddyEduDbContext(
         b.Entity<FeatureFlag>(e => { e.ToTable("FeatureFlags"); e.HasKey(x => new { x.Key, x.Environment }); });
         b.Entity<AuditRecord>(e => { e.ToTable("AuditRecords"); e.HasKey(x => x.Id); e.HasIndex(x => new { x.TenantId, x.OccurredAtUtc }); e.Property(x => x.MetadataJson).HasColumnType("jsonb"); });
         b.Entity<StoredFile>(e => { e.ToTable("StoredFiles"); e.HasKey(x => x.Id); e.HasIndex(x => new { x.TenantId, x.ObjectKey }).IsUnique(); e.HasIndex(x => new { x.TenantId, x.EntityType, x.EntityId }); });
-        b.Entity<NotificationMessage>(e => { e.ToTable("NotificationMessages"); e.HasKey(x => x.Id); e.HasIndex(x => new { x.TenantId, x.Status, x.CreatedAtUtc }); e.Property(x => x.PayloadJson).HasColumnType("jsonb"); });
+        b.Entity<NotificationMessage>(e => { e.ToTable("NotificationMessages"); e.HasKey(x => x.Id); e.HasIndex(x => new { x.TenantId, x.Status, x.CreatedAtUtc }); e.Property(x => x.PayloadJson).HasColumnType("jsonb"); e.Property(x => x.LastError).HasMaxLength(500); });
     }
 }

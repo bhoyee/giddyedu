@@ -41,7 +41,7 @@ logs/
 
 # Local storage
 data/
-storage/
+/storage/
 
 # Secrets
 *.pem

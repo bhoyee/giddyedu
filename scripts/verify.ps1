@@ -16,12 +16,14 @@ Write-Host "Verifying Family mobile app..." -ForegroundColor Cyan
 Push-Location mobile/family
 npm ci
 npx tsc --noEmit
+npm run lint
 Pop-Location
 
 Write-Host "Verifying Staff mobile app..." -ForegroundColor Cyan
 Push-Location mobile/staff
 npm ci
 npx tsc --noEmit
+npm run lint
 Pop-Location
 
 Write-Host "All configured checks passed." -ForegroundColor Green

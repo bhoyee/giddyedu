@@ -12,6 +12,8 @@ public sealed class TenantSetting : ITenantOwned
     public string ValueJson { get; private set; } = null!;
     public DateTimeOffset UpdatedAtUtc { get; private set; }
     public Guid UpdatedByUserId { get; private set; }
+    public void Update(string valueJson, DateTimeOffset updatedAtUtc, Guid updatedByUserId)
+    { ValueJson = valueJson; UpdatedAtUtc = updatedAtUtc; UpdatedByUserId = updatedByUserId; }
 }
 
 public sealed class CampusSetting : ITenantOwned
@@ -24,6 +26,7 @@ public sealed class CampusSetting : ITenantOwned
     public string Key { get; private set; } = null!;
     public string ValueJson { get; private set; } = null!;
     public DateTimeOffset UpdatedAtUtc { get; private set; }
+    public void Update(string valueJson, DateTimeOffset updatedAtUtc) { ValueJson = valueJson; UpdatedAtUtc = updatedAtUtc; }
 }
 
 public sealed class FeatureFlag
@@ -71,6 +74,13 @@ public sealed class StoredFile : ITenantOwned
     public Guid UploadedByUserId { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public StoredFileStatus Status { get; private set; }
+    public void MarkAvailable(string checksum)
+    {
+        if (Status != StoredFileStatus.PendingUpload) throw new InvalidOperationException("Only pending uploads can become available.");
+        Checksum = string.IsNullOrWhiteSpace(checksum) ? throw new ArgumentException("A checksum is required.", nameof(checksum)) : checksum.Trim();
+        Status = StoredFileStatus.Available;
+    }
+    public void MarkDeleted() => Status = StoredFileStatus.Deleted;
 }
 
 public enum NotificationStatus { Pending, Processing, Sent, Failed }
@@ -89,4 +99,20 @@ public sealed class NotificationMessage : ITenantOwned
     public NotificationStatus Status { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public DateTimeOffset? ProcessedAtUtc { get; private set; }
+    public int AttemptCount { get; private set; }
+    public string? LastError { get; private set; }
+
+    public void MarkProcessing()
+    {
+        if (Status is NotificationStatus.Sent) throw new InvalidOperationException("A sent notification cannot be processed again.");
+        Status = NotificationStatus.Processing;
+        AttemptCount++;
+    }
+    public void MarkSent(DateTimeOffset processedAtUtc) { Status = NotificationStatus.Sent; ProcessedAtUtc = processedAtUtc; LastError = null; }
+    public void MarkFailed(string error, DateTimeOffset processedAtUtc)
+    {
+        Status = NotificationStatus.Failed;
+        ProcessedAtUtc = processedAtUtc;
+        LastError = error.Length <= 500 ? error : error[..500];
+    }
 }

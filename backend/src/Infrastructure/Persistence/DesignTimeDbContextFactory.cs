@@ -10,7 +10,7 @@ public sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<Gid
     {
         var connection = Environment.GetEnvironmentVariable("ConnectionStrings__Postgres")
             ?? "Host=localhost;Port=5432;Database=giddyedu;Username=giddyedu;Password=giddyedu_dev";
-        var options = new DbContextOptionsBuilder<GiddyEduDbContext>().UseNpgsql(connection).Options;
+        var options = new DbContextOptionsBuilder<GiddyEduDbContext>().UseNpgsql(connection, npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "public")).Options;
         return new GiddyEduDbContext(options, new TenantContextAccessor());
     }
 }

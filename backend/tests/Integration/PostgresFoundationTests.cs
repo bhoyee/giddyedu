@@ -47,7 +47,7 @@ public sealed class PostgresFoundationTests
 
     private static GiddyEduDbContext CreateContext(ITenantContext tenantContext)
     {
-        var options = new DbContextOptionsBuilder<GiddyEduDbContext>().UseNpgsql(ConnectionString).Options;
+        var options = new DbContextOptionsBuilder<GiddyEduDbContext>().UseNpgsql(ConnectionString, npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "public")).Options;
         return new GiddyEduDbContext(options, tenantContext);
     }
 }

@@ -52,6 +52,17 @@ public sealed class TenantIsolationTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
     }
 
+    [Fact]
+    public async Task AuditRecords_AreAppendOnly()
+    {
+        var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
+        await using var db = fixture.CreateContext();
+        var record = new AuditRecord(Guid.NewGuid(), fixture.TenantA, null, "Test", "Tenant", fixture.TenantA.ToString(), "Succeeded", DateTimeOffset.UtcNow, null);
+        db.AuditRecords.Add(record); await db.SaveChangesAsync();
+        db.Remove(record);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
+    }
+
     private sealed class Fixture
     {
         private Fixture(DbContextOptions<GiddyEduDbContext> options, TenantContextAccessor context, Guid tenantA, Guid tenantB)

@@ -97,4 +97,9 @@ public sealed class FeatureUsage : ITenantOwned
     public Guid FeatureId { get; private set; }
     public DateOnly PeriodStart { get; private set; }
     public long Quantity { get; private set; }
+    public void Add(long quantity)
+    {
+        if (quantity <= 0) throw new ArgumentOutOfRangeException(nameof(quantity));
+        checked { Quantity += quantity; }
+    }
 }

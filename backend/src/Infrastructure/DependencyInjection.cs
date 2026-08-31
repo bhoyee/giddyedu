@@ -17,6 +17,7 @@ using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,6 +25,7 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using StackExchange.Redis;
+using System.Security.Cryptography.X509Certificates;
 
 namespace GiddyEdu.Infrastructure;
 
@@ -45,14 +47,24 @@ public static class DependencyInjection
         services.AddSingleton<IObjectKeyFactory, TenantObjectKeyFactory>();
         services.AddScoped<IAuditWriter, AuditWriter>();
         services.AddScoped<INotificationQueue, NotificationQueue>();
+        services.AddScoped<NotificationDeliveryJob>();
+        services.AddScoped<NotificationOutboxSweepJob>();
+        services.AddScoped<ISettingsService, SettingsService>();
+        services.AddScoped<IFeatureFlagService, FeatureFlagService>();
         services.Configure<SmtpOptions>(configuration.GetSection(SmtpOptions.SectionName));
         services.AddTransient<IEmailSender, SmtpEmailSender>();
         services.AddScoped<IEntitlementService, EntitlementService>();
         services.AddScoped<TenantJobExecutor>();
         services.AddScoped<IIntegrationClient, IntegrationClient>();
         services.AddHttpClient("integrations", client => client.Timeout = TimeSpan.FromSeconds(30));
-        services.AddDbContext<GiddyEduDbContext>(options => options.UseNpgsql(postgres));
-        services.AddDataProtection();
+        services.AddDbContext<GiddyEduDbContext>(options => options.UseNpgsql(postgres, npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "public")));
+        var dataProtection = services.AddDataProtection().SetApplicationName("GiddyEdu");
+        var certificatePath = configuration["DataProtection:CertificatePath"];
+        if (!string.IsNullOrWhiteSpace(certificatePath))
+        {
+            var certificate = X509CertificateLoader.LoadPkcs12FromFile(certificatePath, configuration["DataProtection:CertificatePassword"]);
+            dataProtection.ProtectKeysWithCertificate(certificate);
+        }
         services.AddIdentityCore<PlatformUser>(options =>
         {
             options.Password.RequiredLength = 12;
@@ -69,6 +81,7 @@ public static class DependencyInjection
         services.Configure<R2Options>(configuration.GetSection(R2Options.SectionName));
         services.AddSingleton<IAmazonS3>(sp => R2ClientFactory.Create(sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<R2Options>>().Value));
         services.AddScoped<IFileObjectStorage, R2FileObjectStorage>();
+        services.AddScoped<IFileService, FileService>();
         var checks = services.AddHealthChecks().AddDbContextCheck<GiddyEduDbContext>("postgres", tags: ["ready"]).AddCheck<RedisHealthCheck>("redis", tags: ["ready"]);
         if (!string.IsNullOrWhiteSpace(configuration[$"{R2Options.SectionName}:Endpoint"])) checks.AddCheck<R2HealthCheck>("r2", tags: ["ready"]);
         if (!string.IsNullOrWhiteSpace(configuration[$"{SmtpOptions.SectionName}:Host"])) checks.AddCheck<SmtpHealthCheck>("smtp", tags: ["ready"]);

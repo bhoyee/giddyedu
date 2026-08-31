@@ -6,9 +6,12 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<ApiExceptionHandler>();
+builder.Services.AddRateLimiter(options => options.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })));
 builder.Services.AddOpenApi();
 builder.Services.AddGiddyEduFoundation(builder.Configuration, "GiddyEdu.Api");
 var signingKey = builder.Configuration["Jwt:SigningKey"];
@@ -28,6 +31,7 @@ builder.Services.AddAuthorization(options => options.FallbackPolicy = new Author
 
 var app = builder.Build();
 app.UseExceptionHandler();
+app.UseRateLimiter();
 app.Use(async (context, next) =>
 {
     var correlationId = context.Request.Headers["X-Correlation-ID"].FirstOrDefault() ?? Guid.NewGuid().ToString("N");
@@ -40,6 +44,7 @@ app.UseAuthorization();
 app.MapGet("/", () => Results.Ok(new { service = "GiddyEdu API", status = "running" })).AllowAnonymous();
 app.MapGet("/api/v1/platform/info", () => Results.Ok(new { name = "GiddyEdu", architecture = "modular-monolith", apiVersion = "v1" }));
 app.MapAuthEndpoints();
+app.MapFoundationEndpoints();
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false }).AllowAnonymous();
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") }).AllowAnonymous();
 if (app.Environment.IsDevelopment()) app.MapOpenApi().AllowAnonymous();

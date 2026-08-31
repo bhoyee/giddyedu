@@ -47,6 +47,7 @@ services:
       Jwt__Issuer: ${JWT__ISSUER}
       Jwt__Audience: ${JWT__AUDIENCE}
       Jwt__SigningKey: ${JWT__SIGNINGKEY}
+      App__PublicBaseUrl: ${APP__PUBLICBASEURL:-http://localhost:3000}
       R2__Endpoint: ${R2__ENDPOINT}
       R2__Region: ${R2__REGION:-auto}
       R2__Bucket: ${R2__BUCKET}
@@ -60,8 +61,12 @@ services:
       SMTP__Password: ${SMTP_PASSWORD}
       SMTP__FromEmail: ${SMTP_FROM_EMAIL}
       SMTP__FromName: ${SMTP_FROM_NAME:-GiddyEdu}
+      DataProtection__CertificatePath: ${DATAPROTECTION__CERTIFICATEPATH:-}
+      DataProtection__CertificatePassword: ${DATAPROTECTION__CERTIFICATEPASSWORD:-}
     ports:
       - "8080:8080"
+    volumes:
+      - giddyedu-data-protection:/home/app/.aspnet/DataProtection-Keys
     depends_on:
       postgres:
         condition: service_healthy
@@ -96,11 +101,15 @@ services:
       SMTP__Password: ${SMTP_PASSWORD}
       SMTP__FromEmail: ${SMTP_FROM_EMAIL}
       SMTP__FromName: ${SMTP_FROM_NAME:-GiddyEdu}
+      DataProtection__CertificatePath: ${DATAPROTECTION__CERTIFICATEPATH:-}
+      DataProtection__CertificatePassword: ${DATAPROTECTION__CERTIFICATEPASSWORD:-}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - giddyedu-data-protection:/home/app/.aspnet/DataProtection-Keys
 
   web:
     build:
@@ -120,3 +129,4 @@ services:
 volumes:
   giddyedu-postgres-data:
   giddyedu-redis-data:
+  giddyedu-data-protection:
