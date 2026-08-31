@@ -7,14 +7,20 @@ COPY backend/ ./backend/
 
 RUN dotnet restore backend/GiddyEdu.slnx
 
-RUN dotnet publish backend/src/Worker/GiddyEdu.Worker.csproj 
-    -c Release 
-    -o /app/publish 
+RUN dotnet publish backend/src/Worker/GiddyEdu.Worker.csproj \
+    -c Release \
+    -o /app/publish \
     --no-restore
 
-FROM mcr.microsoft.com/dotnet/runtime:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app/publish .
+
+USER $APP_UID
 
 ENTRYPOINT ["dotnet", "GiddyEdu.Worker.dll"]

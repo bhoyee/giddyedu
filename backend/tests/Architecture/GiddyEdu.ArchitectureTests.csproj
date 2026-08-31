@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\Modules\Tenancy\GiddyEdu.Modules.Tenancy.csproj" />
     <ProjectReference Include="..\..\src\Modules\Identity\GiddyEdu.Modules.Identity.csproj" />
     <ProjectReference Include="..\..\src\Modules\Subscriptions\GiddyEdu.Modules.Subscriptions.csproj" />
+    <ProjectReference Include="..\..\src\Infrastructure\GiddyEdu.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

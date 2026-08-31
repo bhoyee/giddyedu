@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BuildingBlocks\GiddyEdu.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\Infrastructure\GiddyEdu.Infrastructure.csproj" />
     <ProjectReference Include="..\Modules\Platform\GiddyEdu.Modules.Platform.csproj" />
     <ProjectReference Include="..\Modules\Tenancy\GiddyEdu.Modules.Tenancy.csproj" />
     <ProjectReference Include="..\Modules\Subscriptions\GiddyEdu.Modules.Subscriptions.csproj" />

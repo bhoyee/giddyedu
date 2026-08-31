@@ -10,6 +10,7 @@
   <ItemGroup>
     <PackageReference Include="coverlet.collector" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
@@ -22,6 +23,7 @@
     <ProjectReference Include="..\..\src\Api\GiddyEdu.Api.csproj" />
     <ProjectReference Include="..\..\src\Modules\Tenancy\GiddyEdu.Modules.Tenancy.csproj" />
     <ProjectReference Include="..\..\src\Modules\Identity\GiddyEdu.Modules.Identity.csproj" />
+    <ProjectReference Include="..\..\src\Infrastructure\GiddyEdu.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

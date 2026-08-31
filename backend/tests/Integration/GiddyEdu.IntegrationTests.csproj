@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Api\GiddyEdu.Api.csproj" />
+    <ProjectReference Include="..\..\src\Infrastructure\GiddyEdu.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

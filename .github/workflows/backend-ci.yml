@@ -22,6 +22,34 @@ jobs:
   build-test:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: giddyedu_test
+          POSTGRES_USER: giddyedu
+          POSTGRES_PASSWORD: giddyedu_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U giddyedu -d giddyedu_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      ConnectionStrings__Postgres: Host=localhost;Port=5432;Database=giddyedu_test;Username=giddyedu;Password=giddyedu_test_password
+      ConnectionStrings__Redis: localhost:6379
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,8 +62,14 @@ jobs:
       - name: Restore
         run: dotnet restore backend/GiddyEdu.slnx
 
+      - name: Restore local tools
+        run: dotnet tool restore
+
       - name: Build
         run: dotnet build backend/GiddyEdu.slnx --configuration Release --no-restore
+
+      - name: Apply database migrations
+        run: dotnet ef database update --project backend/src/Infrastructure/GiddyEdu.Infrastructure.csproj --startup-project backend/src/Api/GiddyEdu.Api.csproj --no-build --configuration Release
 
       - name: Test
         run: dotnet test backend/GiddyEdu.slnx --configuration Release --no-build

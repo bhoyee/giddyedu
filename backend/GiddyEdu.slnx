@@ -6,6 +6,9 @@
   <Folder Name="/src/BuildingBlocks/">
     <Project Path="src/BuildingBlocks/GiddyEdu.BuildingBlocks.csproj" />
   </Folder>
+  <Folder Name="/src/Infrastructure/">
+    <Project Path="src/Infrastructure/GiddyEdu.Infrastructure.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/" />
   <Folder Name="/src/Modules/Identity/">
     <Project Path="src/Modules/Identity/GiddyEdu.Modules.Identity.csproj" />

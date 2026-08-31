@@ -6,15 +6,15 @@ services:
     container_name: giddyedu-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: giddyedu
-      POSTGRES_USER: giddyedu
-      POSTGRES_PASSWORD: giddyedu_dev
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
-      - giddyedu-postgres-data:/var/lib/postgresql/data
+      - giddyedu-postgres-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U giddyedu -d giddyedu"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -42,8 +42,24 @@ services:
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=giddyedu;Username=giddyedu;Password=giddyedu_dev
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       ConnectionStrings__Redis: redis:6379
+      Jwt__Issuer: ${JWT__ISSUER}
+      Jwt__Audience: ${JWT__AUDIENCE}
+      Jwt__SigningKey: ${JWT__SIGNINGKEY}
+      R2__Endpoint: ${R2__ENDPOINT}
+      R2__Region: ${R2__REGION:-auto}
+      R2__Bucket: ${R2__BUCKET}
+      R2__AccessKey: ${R2__ACCESSKEY}
+      R2__SecretKey: ${R2__SECRETKEY}
+      SMTP__Host: ${SMTP_HOST}
+      SMTP__Port: ${SMTP_PORT:-587}
+      SMTP__Security: ${SMTP_SECURITY:-StartTls}
+      SMTP__Authentication: ${SMTP_AUTH:-true}
+      SMTP__Username: ${SMTP_USERNAME}
+      SMTP__Password: ${SMTP_PASSWORD}
+      SMTP__FromEmail: ${SMTP_FROM_EMAIL}
+      SMTP__FromName: ${SMTP_FROM_NAME:-GiddyEdu}
     ports:
       - "8080:8080"
     depends_on:
@@ -51,6 +67,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
   worker:
     build:
@@ -60,8 +81,21 @@ services:
     restart: unless-stopped
     environment:
       DOTNET_ENVIRONMENT: Development
-      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=giddyedu;Username=giddyedu;Password=giddyedu_dev
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       ConnectionStrings__Redis: redis:6379
+      R2__Endpoint: ${R2__ENDPOINT}
+      R2__Region: ${R2__REGION:-auto}
+      R2__Bucket: ${R2__BUCKET}
+      R2__AccessKey: ${R2__ACCESSKEY}
+      R2__SecretKey: ${R2__SECRETKEY}
+      SMTP__Host: ${SMTP_HOST}
+      SMTP__Port: ${SMTP_PORT:-587}
+      SMTP__Security: ${SMTP_SECURITY:-StartTls}
+      SMTP__Authentication: ${SMTP_AUTH:-true}
+      SMTP__Username: ${SMTP_USERNAME}
+      SMTP__Password: ${SMTP_PASSWORD}
+      SMTP__FromEmail: ${SMTP_FROM_EMAIL}
+      SMTP__FromName: ${SMTP_FROM_NAME:-GiddyEdu}
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,7 +114,8 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   giddyedu-postgres-data:
