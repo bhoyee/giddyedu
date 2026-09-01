@@ -70,6 +70,7 @@ public sealed class FoundationSecurityTests
     private sealed class DeniedPermissionService : IPermissionService
     {
         public Task<bool> HasPermissionAsync(Guid userId, string permission, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<IReadOnlyCollection<string>> GetEffectivePermissionsAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyCollection<string>>([]);
     }
 
     [Fact]

@@ -1,6 +1,8 @@
 using GiddyEdu.BuildingBlocks.Tenancy;
 using GiddyEdu.Infrastructure.Persistence;
 using GiddyEdu.Modules.Tenancy.Domain;
+using GiddyEdu.Modules.Identity.Domain;
+using GiddyEdu.Modules.Platform.Domain;
 using Microsoft.EntityFrameworkCore;
 
 namespace GiddyEdu.IntegrationTests;
@@ -42,6 +44,24 @@ public sealed class PostgresFoundationTests
         var visible = await db.Campuses.AsNoTracking().ToListAsync();
         Assert.Single(visible);
         Assert.Equal(tenantA, visible[0].TenantId);
+        await transaction.RollbackAsync();
+    }
+
+    [Fact]
+    public async Task PostgreSqlCompositeKeys_RejectCrossTenantRoleAndCustomFieldReferences()
+    {
+        var context = new TenantContextAccessor(); await using var db = CreateContext(context); await using var transaction = await db.Database.BeginTransactionAsync();
+        var tenantA = Guid.NewGuid(); var tenantB = Guid.NewGuid(); var roleB = Guid.NewGuid(); var membershipA = Guid.NewGuid(); var definitionB = Guid.NewGuid();
+        var user = new PlatformUser { Id = Guid.NewGuid(), UserName = $"integration-{Guid.NewGuid():N}@example.com", DisplayName = "Integration User", CreatedAtUtc = DateTimeOffset.UtcNow };
+        db.Users.Add(user); db.Tenants.AddRange(new Tenant(tenantA, "Constraint A", $"constraint-a-{tenantA:N}", DateTimeOffset.UtcNow), new Tenant(tenantB, "Constraint B", $"constraint-b-{tenantB:N}", DateTimeOffset.UtcNow));
+        await db.SaveChangesAsync(); context.Set(tenantA, null); db.TenantMemberships.Add(new TenantMembership(membershipA, tenantA, user.Id, DateTimeOffset.UtcNow)); await db.SaveChangesAsync();
+        context.Set(tenantB, null); db.TenantRoles.Add(new TenantRole(roleB, tenantB, "B role")); db.CustomFieldDefinitions.Add(new CustomFieldDefinition(definitionB, tenantB, "Tenancy", "Campus", "integration_field", "Integration", CustomFieldDataType.ShortText, DateTimeOffset.UtcNow)); await db.SaveChangesAsync();
+        db.ChangeTracker.Clear(); context.Set(tenantA, null);
+        db.TenantMembershipRoles.Add(new TenantMembershipRole(tenantA, membershipA, roleB));
+        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+        db.ChangeTracker.Clear();
+        db.CustomFieldValues.Add(new CustomFieldValue(Guid.NewGuid(), tenantA, definitionB, "Campus", Guid.NewGuid(), "\"value\"", DateTimeOffset.UtcNow));
+        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
         await transaction.RollbackAsync();
     }
 

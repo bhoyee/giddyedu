@@ -55,7 +55,7 @@ public static class AuthEndpoints
             db.Tenants.Add(new Tenant(tenantId, request.SchoolName, slug, clock.UtcNow));
             db.Campuses.Add(new Campus(Guid.NewGuid(), tenantId, request.CampusName, "MAIN", clock.UtcNow));
             db.TenantMemberships.Add(new TenantMembership(membershipId, tenantId, user.Id, clock.UtcNow));
-            var catalog = new[] { Permissions.RolesManage, Permissions.UsersManage, Permissions.TenantSettingsManage, Permissions.CustomFieldsManage, Permissions.FilesManage };
+            var catalog = Permissions.Foundation;
             foreach (var name in catalog)
                 if (!await db.Permissions.AnyAsync(x => x.Name == name, cancellationToken)) db.Permissions.Add(new Permission(Guid.NewGuid(), name, name));
             await db.SaveChangesAsync(cancellationToken);

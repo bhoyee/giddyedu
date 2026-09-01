@@ -44,6 +44,8 @@ public static class DependencyInjection
         services.AddScoped<TenantRoleService>();
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
         services.AddSingleton<ICustomFieldValueValidator, CustomFieldValueValidator>();
+        services.AddScoped<ICustomFieldTargetRegistry, CustomFieldTargetRegistry>();
+        services.AddScoped<ICustomFieldService, CustomFieldService>();
         services.AddSingleton<IObjectKeyFactory, TenantObjectKeyFactory>();
         services.AddScoped<IAuditWriter, AuditWriter>();
         services.AddScoped<INotificationQueue, NotificationQueue>();

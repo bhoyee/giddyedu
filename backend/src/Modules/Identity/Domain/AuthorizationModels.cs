@@ -20,6 +20,12 @@ public sealed class TenantRole : ITenantOwned
     public Guid TenantId { get; private set; }
     public string Name { get; private set; } = null!;
     public bool IsSystemTemplate { get; private set; }
+
+    public void Rename(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > 100) throw new ArgumentException("Role name must contain between 1 and 100 characters.", nameof(name));
+        Name = name.Trim();
+    }
 }
 
 public sealed class RolePermission : ITenantOwned

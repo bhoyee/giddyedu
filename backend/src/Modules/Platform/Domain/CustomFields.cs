@@ -27,6 +27,13 @@ public sealed class CustomFieldDefinition : ITenantOwned
     public string? ValidationJson { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public DateTimeOffset? UpdatedAtUtc { get; private set; }
+
+    public void Update(string label, string? helpText, bool isRequired, bool isActive, int displayOrder, string? defaultValue, string? validationJson, DateTimeOffset updatedAtUtc)
+    {
+        if (string.IsNullOrWhiteSpace(label) || label.Trim().Length > 200) throw new ArgumentException("A label of at most 200 characters is required.", nameof(label));
+        Label = label.Trim(); HelpText = string.IsNullOrWhiteSpace(helpText) ? null : helpText.Trim(); IsRequired = isRequired; IsActive = isActive;
+        DisplayOrder = displayOrder; DefaultValue = defaultValue; ValidationJson = validationJson; UpdatedAtUtc = updatedAtUtc;
+    }
 }
 
 public sealed class CustomFieldOption : ITenantOwned
@@ -54,4 +61,6 @@ public sealed class CustomFieldValue : ITenantOwned
     public Guid EntityId { get; private set; }
     public string ValueJson { get; private set; } = null!;
     public DateTimeOffset UpdatedAtUtc { get; private set; }
+
+    public void Update(string valueJson, DateTimeOffset updatedAtUtc) { ValueJson = valueJson; UpdatedAtUtc = updatedAtUtc; }
 }
