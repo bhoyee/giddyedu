@@ -21,6 +21,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Api\GiddyEdu.Api.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Academics\GiddyEdu.Modules.Academics.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Hr\GiddyEdu.Modules.Hr.csproj" />
+    <ProjectReference Include="..\..\src\Modules\StudentLifecycle\GiddyEdu.Modules.StudentLifecycle.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Schools\GiddyEdu.Modules.Schools.csproj" />
     <ProjectReference Include="..\..\src\Modules\Tenancy\GiddyEdu.Modules.Tenancy.csproj" />
     <ProjectReference Include="..\..\src\Modules\Identity\GiddyEdu.Modules.Identity.csproj" />
     <ProjectReference Include="..\..\src\Infrastructure\GiddyEdu.Infrastructure.csproj" />

@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\StudentLifecycle\GiddyEdu.Modules.StudentLifecycle.csproj" />
     <PackageReference Include="coverlet.collector" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
@@ -21,7 +22,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\BuildingBlocks\GiddyEdu.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Academics\GiddyEdu.Modules.Academics.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Hr\GiddyEdu.Modules.Hr.csproj" />
     <ProjectReference Include="..\..\src\Modules\Platform\GiddyEdu.Modules.Platform.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Schools\GiddyEdu.Modules.Schools.csproj" />
     <ProjectReference Include="..\..\src\Modules\Tenancy\GiddyEdu.Modules.Tenancy.csproj" />
     <ProjectReference Include="..\..\src\Modules\Identity\GiddyEdu.Modules.Identity.csproj" />
     <ProjectReference Include="..\..\src\Modules\Subscriptions\GiddyEdu.Modules.Subscriptions.csproj" />

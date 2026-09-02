@@ -1,0 +1,2 @@
+import { ProfileDetail } from "@/components/profile-detail";
+export default async function StudentDetailPage({params}:{params:Promise<{id:string}>}){const {id}=await params;return <ProfileDetail id={id} kind="Student" endpoint={`students/${id}`} sensitiveEndpoint={`students/${id}/sensitive`} backPath="/portal/students" title="Student record" fields={[{name:"firstName",label:"First name"},{name:"lastName",label:"Last name"},{name:"dateOfBirth",label:"Date of birth",type:"date"}]}/>;}

@@ -23,6 +23,570 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.AcademicTerm", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AcademicYearId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("EndsOn")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly>("StartsOn")
+                        .HasColumnType("date");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("TenantId", "Id");
+
+                    b.HasIndex("TenantId", "AcademicYearId", "Code")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "AcademicYearId", "Sequence")
+                        .IsUnique();
+
+                    b.ToTable("AcademicTerms", "giddyedu", t =>
+                        {
+                            t.HasCheckConstraint("CK_AcademicTerms_DateRange", "\"EndsOn\" > \"StartsOn\"");
+
+                            t.HasCheckConstraint("CK_AcademicTerms_Sequence", "\"Sequence\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.AcademicYear", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("EndsOn")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateOnly>("StartsOn")
+                        .HasColumnType("date");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 1");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("AcademicYears", "giddyedu", t =>
+                        {
+                            t.HasCheckConstraint("CK_AcademicYears_DateRange", "\"EndsOn\" > \"StartsOn\"");
+                        });
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.ClassLevel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("EducationStageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Code")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "EducationStageId");
+
+                    b.ToTable("ClassLevels", "giddyedu");
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.ClassSection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AcademicYearId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CampusId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("Capacity")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ClassLevelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "AcademicYearId");
+
+                    b.HasIndex("TenantId", "ClassLevelId");
+
+                    b.HasIndex("TenantId", "CampusId", "AcademicYearId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("ClassSections", "giddyedu", t =>
+                        {
+                            t.HasCheckConstraint("CK_ClassSections_Capacity", "\"Capacity\" IS NULL OR \"Capacity\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.ClassSubject", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClassSectionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SubjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsCompulsory")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("TenantId", "ClassSectionId", "SubjectId");
+
+                    b.HasIndex("TenantId", "SubjectId");
+
+                    b.ToTable("ClassSubjects", "giddyedu");
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.Department", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("Departments", "giddyedu");
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.EducationStage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("EducationStages", "giddyedu");
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.Subject", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DepartmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsCore")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Code")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "DepartmentId");
+
+                    b.ToTable("Subjects", "giddyedu");
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.Position", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("Positions", "giddyedu");
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.StaffProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CampusId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Category")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DepartmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly?>("ExitDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateOnly>("HireDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid?>("PositionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StaffNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("WorkEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("TenantId", "CampusId");
+
+                    b.HasIndex("TenantId", "DepartmentId");
+
+                    b.HasIndex("TenantId", "PositionId");
+
+                    b.HasIndex("TenantId", "StaffNumber")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "UserId")
+                        .IsUnique()
+                        .HasFilter("\"UserId\" IS NOT NULL");
+
+                    b.ToTable("StaffProfiles", "giddyedu", t =>
+                        {
+                            t.HasCheckConstraint("CK_StaffProfiles_ExitDate", "\"ExitDate\" IS NULL OR \"ExitDate\" >= \"HireDate\"");
+                        });
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.StaffSensitiveRecord", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("StaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("NextOfKinName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("NextOfKinPhone")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TenantId", "StaffId");
+
+                    b.ToTable("StaffSensitiveRecords", "giddyedu");
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.TeachingAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClassSectionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("StaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SubjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("TenantId", "Id");
+
+                    b.HasIndex("TenantId", "SubjectId");
+
+                    b.HasIndex("TenantId", "ClassSectionId", "Role")
+                        .IsUnique()
+                        .HasFilter("\"Role\" IN (1, 2)");
+
+                    b.HasIndex("TenantId", "StaffId", "ClassSectionId", "SubjectId", "Role")
+                        .IsUnique()
+                        .HasFilter("\"Role\" = 0");
+
+                    b.ToTable("TeachingAssignments", "giddyedu", t =>
+                        {
+                            t.HasCheckConstraint("CK_TeachingAssignments_RoleSubject", "(\"Role\" = 0 AND \"SubjectId\" IS NOT NULL) OR (\"Role\" <> 0 AND \"SubjectId\" IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Identity.Domain.AccountInvitation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("AcceptedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("RevokedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TargetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("TargetType")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "TargetType", "TargetId");
+
+                    b.ToTable("AccountInvitations", "giddyedu");
+                });
+
             modelBuilder.Entity("GiddyEdu.Modules.Identity.Domain.Permission", b =>
                 {
                     b.Property<Guid>("Id")
@@ -554,6 +1118,431 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                     b.ToTable("TenantSettings", "giddyedu");
                 });
 
+            modelBuilder.Entity("GiddyEdu.Modules.Schools.Domain.SchoolProfile", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("CountryCode")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<string>("LegalName")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<Guid?>("LogoFileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("PrimaryColor")
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)");
+
+                    b.Property<string>("SecondaryColor")
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)");
+
+                    b.Property<string>("TimeZone")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("WebsiteUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("TenantId");
+
+                    b.ToTable("SchoolProfiles", "giddyedu");
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.AdmissionInterview", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ApplicantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Location")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("OutcomeNotes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("ScheduledAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "ApplicantId", "ScheduledAtUtc");
+
+                    b.ToTable("AdmissionInterviews", "giddyedu");
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.AdmissionReview", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ApplicantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Score")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<string>("ScreeningNotes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TenantId", "ApplicantId");
+
+                    b.ToTable("AdmissionReviews", "giddyedu", t =>
+                        {
+                            t.HasCheckConstraint("CK_AdmissionReviews_Score", "\"Score\" >= 0 AND \"Score\" <= 100");
+                        });
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.Applicant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ApplicationNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("DateOfBirth")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("PreviousSchool")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Source")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("StudentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "ApplicationNumber")
+                        .IsUnique();
+
+                    b.ToTable("Applicants", "giddyedu");
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.ApplicantSensitiveRecord", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ApplicantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Allergies")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("MedicalInformation")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("SpecialEducationalNeeds")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TenantId", "ApplicantId");
+
+                    b.ToTable("ApplicantSensitiveRecords", "giddyedu");
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.Enrollment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AcademicYearId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClassSectionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("EnrolledOn")
+                        .HasColumnType("date");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "AcademicYearId");
+
+                    b.HasIndex("TenantId", "ClassSectionId");
+
+                    b.HasIndex("TenantId", "StudentId", "AcademicYearId")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 0");
+
+                    b.ToTable("Enrollments", "giddyedu");
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.Guardian", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("TenantId", "Phone");
+
+                    b.ToTable("Guardians", "giddyedu");
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.Student", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AdmissionNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("DateOfBirth")
+                        .HasColumnType("date");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("SourceApplicantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "AdmissionNumber")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "SourceApplicantId")
+                        .IsUnique()
+                        .HasFilter("\"SourceApplicantId\" IS NOT NULL");
+
+                    b.ToTable("Students", "giddyedu");
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.StudentGuardian", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("GuardianId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsEmergencyContact")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsPrimary")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("MayCollect")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Relationship")
+                        .HasColumnType("integer");
+
+                    b.HasKey("TenantId", "StudentId", "GuardianId");
+
+                    b.HasIndex("TenantId", "GuardianId");
+
+                    b.ToTable("StudentGuardians", "giddyedu");
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.StudentSensitiveRecord", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Allergies")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("MedicalInformation")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("PrivateNotes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("SpecialEducationalNeeds")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TenantId", "StudentId");
+
+                    b.ToTable("StudentSensitiveRecords", "giddyedu");
+                });
+
             modelBuilder.Entity("GiddyEdu.Modules.Subscriptions.Domain.AddOn", b =>
                 {
                     b.Property<Guid>("Id")
@@ -980,6 +1969,193 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", "giddyedu");
                 });
 
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.AcademicTerm", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Academics.Domain.AcademicYear", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "AcademicYearId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.AcademicYear", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Tenancy.Domain.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.ClassLevel", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Academics.Domain.EducationStage", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "EducationStageId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.ClassSection", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Academics.Domain.AcademicYear", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "AcademicYearId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GiddyEdu.Modules.Tenancy.Domain.Campus", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CampusId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GiddyEdu.Modules.Academics.Domain.ClassLevel", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ClassLevelId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.ClassSubject", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Academics.Domain.ClassSection", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ClassSectionId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("GiddyEdu.Modules.Academics.Domain.Subject", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SubjectId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.Department", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Tenancy.Domain.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.EducationStage", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Tenancy.Domain.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Academics.Domain.Subject", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Tenancy.Domain.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GiddyEdu.Modules.Academics.Domain.Department", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "DepartmentId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.Position", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Tenancy.Domain.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.StaffProfile", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Tenancy.Domain.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GiddyEdu.Modules.Identity.Domain.PlatformUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GiddyEdu.Modules.Tenancy.Domain.Campus", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CampusId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GiddyEdu.Modules.Academics.Domain.Department", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "DepartmentId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GiddyEdu.Modules.Hr.Domain.Position", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "PositionId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.StaffSensitiveRecord", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Hr.Domain.StaffProfile", null)
+                        .WithOne()
+                        .HasForeignKey("GiddyEdu.Modules.Hr.Domain.StaffSensitiveRecord", "TenantId", "StaffId")
+                        .HasPrincipalKey("GiddyEdu.Modules.Hr.Domain.StaffProfile", "TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.TeachingAssignment", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Academics.Domain.ClassSection", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ClassSectionId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("GiddyEdu.Modules.Hr.Domain.StaffProfile", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "StaffId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("GiddyEdu.Modules.Academics.Domain.Subject", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SubjectId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Identity.Domain.AccountInvitation", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Tenancy.Domain.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("GiddyEdu.Modules.Identity.Domain.RolePermission", b =>
                 {
                     b.HasOne("GiddyEdu.Modules.Identity.Domain.Permission", null)
@@ -1039,6 +2215,134 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                         .HasForeignKey("TenantId", "DefinitionId")
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.Schools.Domain.SchoolProfile", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Tenancy.Domain.Tenant", null)
+                        .WithOne()
+                        .HasForeignKey("GiddyEdu.Modules.Schools.Domain.SchoolProfile", "TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.AdmissionInterview", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.StudentLifecycle.Domain.Applicant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ApplicantId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.AdmissionReview", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.StudentLifecycle.Domain.Applicant", null)
+                        .WithOne()
+                        .HasForeignKey("GiddyEdu.Modules.StudentLifecycle.Domain.AdmissionReview", "TenantId", "ApplicantId")
+                        .HasPrincipalKey("GiddyEdu.Modules.StudentLifecycle.Domain.Applicant", "TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.Applicant", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Tenancy.Domain.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.ApplicantSensitiveRecord", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.StudentLifecycle.Domain.Applicant", null)
+                        .WithOne()
+                        .HasForeignKey("GiddyEdu.Modules.StudentLifecycle.Domain.ApplicantSensitiveRecord", "TenantId", "ApplicantId")
+                        .HasPrincipalKey("GiddyEdu.Modules.StudentLifecycle.Domain.Applicant", "TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.Enrollment", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Academics.Domain.AcademicYear", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "AcademicYearId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GiddyEdu.Modules.Academics.Domain.ClassSection", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ClassSectionId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GiddyEdu.Modules.StudentLifecycle.Domain.Student", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "StudentId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.Guardian", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Tenancy.Domain.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GiddyEdu.Modules.Identity.Domain.PlatformUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.Student", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.Tenancy.Domain.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GiddyEdu.Modules.StudentLifecycle.Domain.Applicant", null)
+                        .WithOne()
+                        .HasForeignKey("GiddyEdu.Modules.StudentLifecycle.Domain.Student", "TenantId", "SourceApplicantId")
+                        .HasPrincipalKey("GiddyEdu.Modules.StudentLifecycle.Domain.Applicant", "TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.StudentGuardian", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.StudentLifecycle.Domain.Guardian", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "GuardianId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("GiddyEdu.Modules.StudentLifecycle.Domain.Student", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "StudentId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.StudentSensitiveRecord", b =>
+                {
+                    b.HasOne("GiddyEdu.Modules.StudentLifecycle.Domain.Student", null)
+                        .WithOne()
+                        .HasForeignKey("GiddyEdu.Modules.StudentLifecycle.Domain.StudentSensitiveRecord", "TenantId", "StudentId")
+                        .HasPrincipalKey("GiddyEdu.Modules.StudentLifecycle.Domain.Student", "TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

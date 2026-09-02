@@ -21,6 +21,10 @@ public sealed class PostgresFoundationTests
         var pending = await db.Database.GetPendingMigrationsAsync();
         Assert.Empty(pending);
         Assert.Contains(await db.Database.GetAppliedMigrationsAsync(), migration => migration.EndsWith("_Phase0Foundation", StringComparison.Ordinal));
+        Assert.Contains(await db.Database.GetAppliedMigrationsAsync(), migration => migration.EndsWith("_Phase1SchoolAcademicCore", StringComparison.Ordinal));
+        Assert.Contains(await db.Database.GetAppliedMigrationsAsync(), migration => migration.EndsWith("_Phase1PermissionCatalog", StringComparison.Ordinal));
+        Assert.Contains(await db.Database.GetAppliedMigrationsAsync(), migration => migration.EndsWith("_Phase1AcademicIntegrity", StringComparison.Ordinal));
+        Assert.Equal(4, await db.Permissions.CountAsync(x => x.Name == "Schools.View" || x.Name == "Schools.Manage" || x.Name == "Academics.View" || x.Name == "Academics.Manage"));
     }
 
     [Fact]

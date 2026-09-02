@@ -29,9 +29,13 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\BuildingBlocks\GiddyEdu.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\Modules\Academics\GiddyEdu.Modules.Academics.csproj" />
     <ProjectReference Include="..\Modules\Identity\GiddyEdu.Modules.Identity.csproj" />
+    <ProjectReference Include="..\Modules\Hr\GiddyEdu.Modules.Hr.csproj" />
     <ProjectReference Include="..\Modules\Platform\GiddyEdu.Modules.Platform.csproj" />
+    <ProjectReference Include="..\Modules\Schools\GiddyEdu.Modules.Schools.csproj" />
     <ProjectReference Include="..\Modules\Subscriptions\GiddyEdu.Modules.Subscriptions.csproj" />
+    <ProjectReference Include="..\Modules\StudentLifecycle\GiddyEdu.Modules.StudentLifecycle.csproj" />
     <ProjectReference Include="..\Modules\Tenancy\GiddyEdu.Modules.Tenancy.csproj" />
   </ItemGroup>
 </Project>

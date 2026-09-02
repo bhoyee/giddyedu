@@ -1,0 +1,105 @@
+using GiddyEdu.Modules.Academics.Domain;
+using GiddyEdu.Modules.Schools.Domain;
+using GiddyEdu.Modules.Hr.Domain;
+using GiddyEdu.Modules.StudentLifecycle.Domain;
+using GiddyEdu.Modules.Identity.Domain;
+using GiddyEdu.Modules.Platform.Domain;
+
+namespace GiddyEdu.UnitTests;
+
+public sealed class PhaseOneDomainTests
+{
+    [Fact]
+    public void AcademicYear_RejectsInvalidDateRange()
+    {
+        var date = new DateOnly(2026, 9, 1);
+        Assert.Throws<ArgumentException>(() => new AcademicYear(Guid.NewGuid(), Guid.NewGuid(), "2026/2027", date, date, DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void ClassSection_RejectsNonPositiveCapacity()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ClassSection(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "JSS 1 A", "JSS1-A", 0, DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void AcademicYear_CannotReactivateAfterClosing()
+    {
+        var year = new AcademicYear(Guid.NewGuid(), Guid.NewGuid(), "2026/2027", new DateOnly(2026, 9, 1), new DateOnly(2027, 7, 31), DateTimeOffset.UtcNow);
+        year.Activate(DateTimeOffset.UtcNow); year.Close(DateTimeOffset.UtcNow);
+        Assert.Throws<InvalidOperationException>(() => year.Activate(DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void SchoolProfile_NormalizesCountryAndCurrencyCodes()
+    {
+        var profile = new SchoolProfile(Guid.NewGuid(), "Giddy School", "ng", "Africa/Lagos", "ngn", DateTimeOffset.UtcNow);
+        Assert.Equal("NG", profile.CountryCode); Assert.Equal("NGN", profile.CurrencyCode);
+    }
+
+    [Fact]
+    public void StaffProfile_EnforcesEmploymentLifecycle()
+    {
+        var staff = new StaffProfile(Guid.NewGuid(), Guid.NewGuid(), "staff-1", "Ada", "Okafor", StaffCategory.Teaching,
+            Guid.NewGuid(), null, null, "ada@example.test", null, new DateOnly(2026, 9, 1), DateTimeOffset.UtcNow);
+        staff.Exit(new DateOnly(2027, 7, 31), DateTimeOffset.UtcNow);
+        Assert.Equal("STAFF-1", staff.StaffNumber);
+        Assert.Throws<InvalidOperationException>(() => staff.Reactivate(DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void Applicant_RequiresApprovedWorkflowBeforeConversion()
+    {
+        var applicant = new Applicant(Guid.NewGuid(), Guid.NewGuid(), "APP-1", "Chidi", "Eze", new(2015, 5, 10), null, null, null, null, DateTimeOffset.UtcNow);
+        Assert.Throws<InvalidOperationException>(() => applicant.MarkConverted(Guid.NewGuid(), DateTimeOffset.UtcNow));
+        applicant.Transition(ApplicationStatus.Submitted, DateTimeOffset.UtcNow);
+        applicant.Transition(ApplicationStatus.UnderReview, DateTimeOffset.UtcNow);
+        applicant.Transition(ApplicationStatus.Offered, DateTimeOffset.UtcNow);
+        applicant.Transition(ApplicationStatus.Accepted, DateTimeOffset.UtcNow);
+        applicant.MarkConverted(Guid.NewGuid(), DateTimeOffset.UtcNow);
+        Assert.Equal(ApplicationStatus.Converted, applicant.Status);
+    }
+
+    [Fact]
+    public void Enrollment_PreservesTerminalLifecycleState()
+    {
+        var enrollment = new Enrollment(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), new(2026, 9, 1), DateTimeOffset.UtcNow);
+        enrollment.Complete(EnrollmentStatus.Transferred);
+        Assert.Equal(EnrollmentStatus.Transferred, enrollment.Status);
+        Assert.Throws<InvalidOperationException>(() => enrollment.Complete(EnrollmentStatus.Completed));
+    }
+
+    [Fact]
+    public void TeachingAssignment_RequiresSubjectOnlyForSubjectTeacher()
+    {
+        Assert.Throws<ArgumentException>(() => new TeachingAssignment(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null, TeachingAssignmentRole.SubjectTeacher, DateTimeOffset.UtcNow));
+        Assert.Throws<ArgumentException>(() => new TeachingAssignment(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), TeachingAssignmentRole.ClassTeacher, DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void AdmissionReview_ValidatesAndRoundsScore()
+    {
+        var review = new AdmissionReview(Guid.NewGuid(), Guid.NewGuid(), 75.555m, "Screened", DateTimeOffset.UtcNow);
+        Assert.Equal(75.56m, review.Score);
+        Assert.Throws<ArgumentOutOfRangeException>(() => review.Update(101m, null, DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void AccountInvitation_IsSingleUseAndExpires()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var invitation = new AccountInvitation(Guid.NewGuid(), Guid.NewGuid(), InvitationTargetType.Guardian, Guid.NewGuid(), "parent@example.test", "HASH", now, now.AddDays(3));
+        Assert.True(invitation.IsUsable(now)); invitation.Accept(now.AddMinutes(1));
+        Assert.False(invitation.IsUsable(now.AddMinutes(2)));
+        Assert.Throws<InvalidOperationException>(() => invitation.Accept(now.AddMinutes(2)));
+    }
+
+    [Fact]
+    public void StoredFile_RequiresSha256ChecksumBeforeAvailability()
+    {
+        var file = new StoredFile(Guid.NewGuid(), Guid.NewGuid(), "object.pdf", "document.pdf", "application/pdf", 100, "identity", "Student", Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow);
+        Assert.Throws<ArgumentException>(() => file.MarkAvailable("not-a-checksum"));
+        file.MarkAvailable(new string('a', 64));
+        Assert.Equal(StoredFileStatus.Available, file.Status); Assert.Equal(new string('A', 64), file.Checksum);
+    }
+}

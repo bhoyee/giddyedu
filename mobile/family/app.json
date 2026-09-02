@@ -1,16 +1,18 @@
 {
   "expo": {
-    "name": "_family-temp",
-    "slug": "_family-temp",
+    "name": "GiddyEdu Family",
+    "slug": "giddyedu-family",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "familytemp",
+    "scheme": "giddyedu-family",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "bundleIdentifier": "com.giddyedu.family",
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "com.giddyedu.family",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -32,7 +34,8 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

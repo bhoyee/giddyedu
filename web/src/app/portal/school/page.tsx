@@ -1,0 +1,2 @@
+import { ResourcePage } from "@/components/resource-page";
+export default function SchoolPage() { return <ResourcePage title="Campuses" description="School locations available to this tenant." endpoint="schools/campuses" emptyMessage="No campuses are configured." fields={[{key:"code",label:"Code"},{key:"name",label:"Campus"},{key:"isActive",label:"Active"}]} create={{ endpoint:"schools/campuses", title:"Add campus", fields:[{name:"name",label:"Campus name"},{name:"code",label:"Code"}] }} />; }

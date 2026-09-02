@@ -45,6 +45,7 @@ public sealed class TenantSubscription : ITenantOwned
     public DateTimeOffset StartsAtUtc { get; private set; }
     public DateTimeOffset? EndsAtUtc { get; private set; }
     public bool IsActive { get; private set; }
+    public void End(DateTimeOffset endsAtUtc) { if (!IsActive) return; if (endsAtUtc < StartsAtUtc) throw new ArgumentOutOfRangeException(nameof(endsAtUtc)); EndsAtUtc = endsAtUtc; IsActive = false; }
 }
 
 public sealed class TenantEntitlementOverride : ITenantOwned

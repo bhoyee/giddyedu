@@ -21,6 +21,7 @@ public sealed record CustomFieldValueInfo(Guid DefinitionId, string EntityType, 
 public interface ICustomFieldTargetRegistry
 {
     bool Supports(string module, string entityType);
+    bool SupportsEntity(string entityType);
     Task<bool> ExistsInCurrentTenantAsync(string entityType, Guid entityId, CancellationToken cancellationToken = default);
 }
 
@@ -37,9 +38,14 @@ public interface ICustomFieldService
 public sealed partial class CustomFieldTargetRegistry(GiddyEduDbContext db, ITenantContext tenant) : ICustomFieldTargetRegistry
 {
     private static readonly HashSet<(string Module, string Entity)> Supported = new(StringTupleComparer.OrdinalIgnoreCase)
-    { ("Tenancy", "Tenant"), ("Tenancy", "Campus"), ("Tenancy", "TenantMembership") };
+    {
+        ("Tenancy", "Tenant"), ("Tenancy", "Campus"), ("Tenancy", "TenantMembership"),
+        ("Admissions", "Applicant"), ("StudentLifecycle", "Student"), ("StudentLifecycle", "Guardian"),
+        ("Hr", "StaffProfile")
+    };
 
     public bool Supports(string module, string entityType) => Supported.Contains((module.Trim(), entityType.Trim()));
+    public bool SupportsEntity(string entityType) => Supported.Any(x => StringComparer.OrdinalIgnoreCase.Equals(x.Entity, entityType.Trim()));
 
     public Task<bool> ExistsInCurrentTenantAsync(string entityType, Guid entityId, CancellationToken ct = default)
     {
@@ -49,6 +55,10 @@ public sealed partial class CustomFieldTargetRegistry(GiddyEduDbContext db, ITen
             "tenant" => Task.FromResult(entityId == tenantId),
             "campus" => db.Campuses.AnyAsync(x => x.Id == entityId && x.IsActive, ct),
             "tenantmembership" => db.TenantMemberships.AnyAsync(x => x.Id == entityId && x.IsActive, ct),
+            "applicant" => db.Applicants.AnyAsync(x => x.Id == entityId, ct),
+            "student" => db.Students.AnyAsync(x => x.Id == entityId, ct),
+            "guardian" => db.Guardians.AnyAsync(x => x.Id == entityId, ct),
+            "staffprofile" => db.StaffProfiles.AnyAsync(x => x.Id == entityId, ct),
             _ => Task.FromResult(false)
         };
     }
@@ -124,7 +134,7 @@ public sealed partial class CustomFieldService(GiddyEduDbContext db, ITenantCont
     public async Task<IReadOnlyCollection<CustomFieldValueInfo>> GetValuesAsync(Guid entityId, string entityType, CancellationToken ct = default)
     {
         RequireTenant();
-        if (!targets.Supports("Tenancy", entityType) || !await targets.ExistsInCurrentTenantAsync(entityType, entityId, ct)) throw new KeyNotFoundException("Extensible target was not found.");
+        if (!targets.SupportsEntity(entityType) || !await targets.ExistsInCurrentTenantAsync(entityType, entityId, ct)) throw new KeyNotFoundException("Extensible target was not found.");
         return await (from value in db.CustomFieldValues join definition in db.CustomFieldDefinitions on value.DefinitionId equals definition.Id
                       where value.EntityId == entityId && value.EntityType == entityType && definition.IsActive
                       orderby definition.DisplayOrder, definition.FieldKey

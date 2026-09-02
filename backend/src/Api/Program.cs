@@ -45,6 +45,7 @@ app.MapGet("/", () => Results.Ok(new { service = "GiddyEdu API", status = "runni
 app.MapGet("/api/v1/platform/info", () => Results.Ok(new { name = "GiddyEdu", architecture = "modular-monolith", apiVersion = "v1" }));
 app.MapAuthEndpoints();
 app.MapFoundationEndpoints();
+app.MapPhaseOneEndpoints();
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false }).AllowAnonymous();
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") }).AllowAnonymous();
 if (app.Environment.IsDevelopment()) app.MapOpenApi().AllowAnonymous();

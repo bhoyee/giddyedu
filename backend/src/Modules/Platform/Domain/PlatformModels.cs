@@ -77,7 +77,9 @@ public sealed class StoredFile : ITenantOwned
     public void MarkAvailable(string checksum)
     {
         if (Status != StoredFileStatus.PendingUpload) throw new InvalidOperationException("Only pending uploads can become available.");
-        Checksum = string.IsNullOrWhiteSpace(checksum) ? throw new ArgumentException("A checksum is required.", nameof(checksum)) : checksum.Trim();
+        var normalized = checksum?.Trim().ToUpperInvariant();
+        if (normalized is null || normalized.Length != 64 || normalized.Any(c => !char.IsAsciiHexDigit(c))) throw new ArgumentException("A SHA-256 checksum is required.", nameof(checksum));
+        Checksum = normalized;
         Status = StoredFileStatus.Available;
     }
     public void MarkDeleted() => Status = StoredFileStatus.Deleted;

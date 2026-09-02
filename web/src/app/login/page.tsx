@@ -1,0 +1,3 @@
+import Link from "next/link";
+import { LoginForm } from "@/components/auth-form";
+export default function LoginPage() { return <main className="grid min-h-screen place-items-center bg-[#f6f4ee] px-6 py-12"><section className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl"><Link href="/" className="text-sm font-bold text-emerald-800">← GiddyEdu</Link><h1 className="mt-6 text-3xl font-black">Welcome back</h1><p className="mb-7 mt-2 text-slate-600">Sign in to the correct school workspace.</p><LoginForm /><p className="mt-6 text-sm text-slate-600">New school? <Link className="font-bold text-emerald-800" href="/register">Register here</Link></p></section></main>; }

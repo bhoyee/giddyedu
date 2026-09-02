@@ -11,8 +11,7 @@ public sealed class Campus : ITenantOwned
         if (id == Guid.Empty || tenantId == Guid.Empty) throw new ArgumentException("Campus and tenant identifiers are required.");
         Id = id;
         TenantId = tenantId;
-        Name = name.Trim();
-        Code = code.Trim().ToUpperInvariant();
+        SetNameAndCode(name, code);
         CreatedAtUtc = createdAtUtc;
         IsActive = true;
     }
@@ -24,4 +23,20 @@ public sealed class Campus : ITenantOwned
     public bool IsActive { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public DateTimeOffset? UpdatedAtUtc { get; private set; }
+
+    public void Update(string name, string code, DateTimeOffset updatedAtUtc)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > 200) throw new ArgumentException("Campus name is required and must not exceed 200 characters.", nameof(name));
+        if (string.IsNullOrWhiteSpace(code) || code.Trim().Length > 50) throw new ArgumentException("Campus code is required and must not exceed 50 characters.", nameof(code));
+        SetNameAndCode(name, code); UpdatedAtUtc = updatedAtUtc;
+    }
+
+    public void Deactivate(DateTimeOffset updatedAtUtc) { IsActive = false; UpdatedAtUtc = updatedAtUtc; }
+
+    private void SetNameAndCode(string name, string code)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > 200) throw new ArgumentException("Campus name is required and must not exceed 200 characters.", nameof(name));
+        if (string.IsNullOrWhiteSpace(code) || code.Trim().Length > 50) throw new ArgumentException("Campus code is required and must not exceed 50 characters.", nameof(code));
+        Name = name.Trim(); Code = code.Trim().ToUpperInvariant();
+    }
 }

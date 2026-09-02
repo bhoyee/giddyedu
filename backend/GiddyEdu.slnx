@@ -10,14 +10,26 @@
     <Project Path="src/Infrastructure/GiddyEdu.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Academics/">
+    <Project Path="src/Modules/Academics/GiddyEdu.Modules.Academics.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Identity/">
     <Project Path="src/Modules/Identity/GiddyEdu.Modules.Identity.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Platform/">
     <Project Path="src/Modules/Platform/GiddyEdu.Modules.Platform.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Hr/">
+    <Project Path="src/Modules/Hr/GiddyEdu.Modules.Hr.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Schools/">
+    <Project Path="src/Modules/Schools/GiddyEdu.Modules.Schools.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Subscriptions/">
     <Project Path="src/Modules/Subscriptions/GiddyEdu.Modules.Subscriptions.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/StudentLifecycle/">
+    <Project Path="src/Modules/StudentLifecycle/GiddyEdu.Modules.StudentLifecycle.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Tenancy/">
     <Project Path="src/Modules/Tenancy/GiddyEdu.Modules.Tenancy.csproj" />

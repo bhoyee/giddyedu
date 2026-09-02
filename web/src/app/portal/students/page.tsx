@@ -1,0 +1,11 @@
+import { ResourcePage } from "@/components/resource-page";
+
+export default function StudentsPage() {
+  return <ResourcePage title="Students" description="Manage canonical learner records, enrolment placement, and guardian relationships." endpoint="students?page=1&pageSize=50" emptyMessage="No students have been enrolled." fields={[{key:"admissionNumber",label:"Admission no."},{key:"firstName",label:"First name"},{key:"lastName",label:"Last name"},{key:"dateOfBirth",label:"Date of birth"},{key:"status",label:"Status"}]} actions={[
+    { endpoint:"", title:"Open", href:"/portal/students/{id}" },
+    { endpoint:"students/{id}/enrollments", title:"Add enrolment", fields:[{name:"academicYearId",label:"Academic year",type:"select",optionsEndpoint:"academics/structure",optionsCollectionKey:"academicYears"},{name:"classSectionId",label:"Class section",type:"select",optionsEndpoint:"academics/structure",optionsCollectionKey:"classSections"},{name:"enrolledOn",label:"Enrolment date",type:"date"}] },
+    { endpoint:"students/{id}/guardians", title:"Link guardian", fields:[{name:"guardianId",label:"Guardian",type:"select",optionsEndpoint:"guardians?page=1&pageSize=100",optionLabelKey:"phone"},{name:"relationship",label:"Relationship",type:"select",numeric:true,options:[{value:"0",label:"Mother"},{value:"1",label:"Father"},{value:"2",label:"Parent"},{value:"3",label:"Legal guardian"},{value:"4",label:"Relative"},{value:"5",label:"Sponsor"},{value:"6",label:"Other"}]},{name:"isPrimary",label:"Primary guardian",type:"select",options:[{value:"true",label:"Yes"},{value:"false",label:"No"}]},{name:"isEmergencyContact",label:"Emergency contact",type:"select",options:[{value:"true",label:"Yes"},{value:"false",label:"No"}]},{name:"mayCollect",label:"May collect student",type:"select",options:[{value:"true",label:"Yes"},{value:"false",label:"No"}]}] },
+    { endpoint:"documents/Student/{id}/uploads", title:"Upload document", documentUpload:true, fields:[{name:"category",label:"Category",type:"select",options:[{value:"identity",label:"Identity"},{value:"medical",label:"Medical"},{value:"photo",label:"Photograph"},{value:"other",label:"Other"}]},{name:"file",label:"PDF, JPEG, or PNG (maximum 10 MB)",type:"file"}] },
+    { endpoint:"students/{id}/withdraw", title:"Withdraw student" }
+  ]} />;
+}

@@ -1,0 +1,10 @@
+"use client";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+type Plan = { id: string; code: string; name: string };
+export function SubscriptionPage() {
+  const [plans, setPlans] = useState<Plan[]>([]); const [message, setMessage] = useState(""); const [error, setError] = useState("");
+  useEffect(() => { void fetch("/api/backend/plans").then(async response => { if (!response.ok) throw new Error(); setPlans(await response.json()); }).catch(() => setError("Plans could not be loaded.")); }, []);
+  async function subscribe(code: string) { setError(""); const response = await fetch(`/api/backend/subscriptions/${code}`, { method: "POST" }); if (!response.ok) { setError(response.status === 409 ? "A subscription is already active." : "Subscription could not be started."); return; } setMessage("School Core is active. Return to the workspace to continue setup."); }
+  return <main className="min-h-screen bg-[#f6f4ee] px-6 py-12"><div className="mx-auto max-w-4xl"><Link href="/portal" className="text-sm font-bold text-emerald-800">← Workspace</Link><h1 className="mt-6 text-4xl font-black">Subscription</h1><p className="mt-2 text-slate-600">Enable the product capabilities available to your school.</p>{error && <p role="alert" className="mt-6 rounded-xl bg-red-50 p-4 text-red-700">{error}</p>}{message && <p role="status" className="mt-6 rounded-xl bg-emerald-50 p-4 text-emerald-800">{message}</p>}<div className="mt-8 grid gap-4 sm:grid-cols-2">{plans.map(plan => <article key={plan.id} className="rounded-3xl bg-white p-7 shadow-sm"><p className="text-sm font-bold uppercase tracking-wide text-emerald-800">{plan.code}</p><h2 className="mt-2 text-2xl font-black">{plan.name}</h2><p className="mt-3 text-slate-600">School administration, academics, staff, admissions, SIS and guardian management.</p><button onClick={() => subscribe(plan.code)} className="mt-6 rounded-xl bg-[#12372a] px-5 py-3 font-bold text-white">Activate plan</button></article>)}</div></div></main>;
+}

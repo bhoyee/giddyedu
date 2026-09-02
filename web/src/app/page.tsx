@@ -1,18 +1,16 @@
-﻿export default function Home() {
-  return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto flex min-h-screen max-w-6xl flex-col justify-center px-6">
-        <p className="mb-4 text-sm font-semibold uppercase tracking-[0.3em] text-emerald-400">
-          GiddyEdu
-        </p>
-        <h1 className="max-w-4xl text-5xl font-semibold tracking-tight sm:text-7xl">
-          One school operating platform. Every critical workflow.
-        </h1>
-        <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
-          Phase 0 engineering foundation is running. Product suites will be
-          delivered through the governed modular-monolith roadmap.
-        </p>
-      </div>
-    </main>
-  );
+const workflows = [
+  ["School setup", "Profile, branding, campuses and academic structure", "bg-emerald-500"],
+  ["Admissions", "Review applicants, issue offers and convert accepted learners", "bg-amber-400"],
+  ["Students", "Canonical student records, enrolments and guardian relationships", "bg-sky-500"],
+  ["People", "Staff profiles, positions and protected employment information", "bg-violet-500"],
+];
+const portals = ["School Admin", "Teacher", "Staff", "Parent", "Student", "Bursar", "Super Admin"];
+
+export default function Home() {
+  return <main className="min-h-screen bg-[#f6f4ee] text-slate-950">
+    <header className="bg-[#12372a] text-white"><div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5"><div><p className="text-xl font-black">GiddyEdu</p><p className="text-xs text-emerald-100">School operating platform</p></div><nav aria-label="Account navigation" className="flex gap-3"><a className="rounded-full border border-white/30 px-4 py-2 text-sm" href="/login">Sign in</a><a className="rounded-full bg-[#f4c95d] px-4 py-2 text-sm font-bold text-slate-950" href="/register">Register school</a></nav></div></header>
+    <section className="mx-auto grid max-w-7xl gap-12 px-6 py-16 lg:grid-cols-[1.2fr_.8fr] lg:items-center"><div><p className="mb-5 text-sm font-bold uppercase tracking-[.28em] text-emerald-800">Phase 1 · School Core</p><h1 className="max-w-3xl text-5xl font-black leading-[1.02] tracking-[-.045em] md:text-7xl">From application to classroom, in one trusted record.</h1><p className="mt-7 max-w-2xl text-lg leading-8 text-slate-600">Configure your school, manage staff, admit learners, enrol students and connect families—with tenant isolation and permission checks enforced by the API.</p></div><div className="rounded-[2rem] bg-white p-6 shadow-xl"><p className="text-sm font-bold text-slate-500">Operational path</p><ol className="mt-5 space-y-3">{["Register and subscribe", "Configure school and campuses", "Create staff and academic structure", "Admit and enrol students", "Connect parents and guardians"].map((step, i) => <li key={step} className="flex items-center gap-4 rounded-2xl bg-slate-50 px-4 py-3"><span className="grid size-8 place-items-center rounded-full bg-[#12372a] text-sm font-bold text-white">{i + 1}</span><span className="font-semibold">{step}</span></li>)}</ol></div></section>
+    <section className="mx-auto max-w-7xl px-6 pb-16"><div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">{workflows.map(([title, detail, accent]) => <article key={title} className="rounded-3xl border border-slate-900/10 bg-white p-6"><div className={`mb-7 h-1.5 w-12 rounded-full ${accent}`} /><h2 className="text-xl font-black">{title}</h2><p className="mt-3 leading-6 text-slate-600">{detail}</p></article>)}</div></section>
+    <section className="bg-[#12372a] text-white"><div className="mx-auto max-w-7xl px-6 py-12"><p className="text-sm font-bold uppercase tracking-[.25em] text-emerald-200">One platform · the right workspace</p><div className="mt-6 flex flex-wrap gap-3">{portals.map(portal => <span key={portal} className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm">{portal}</span>)}</div><p className="mt-6 max-w-3xl text-sm leading-6 text-emerald-100">Navigation is filtered by permissions and feature entitlements for usability. Every protected operation remains authorized independently by the backend.</p></div></section>
+  </main>;
 }
