@@ -14,6 +14,8 @@ public sealed record FamilyStudentSummary(Guid StudentId, string AdmissionNumber
 public sealed record StudentEnrollmentSummary(Guid EnrollmentId, Guid ClassSectionId, string ClassName, string ClassCode, Guid AcademicYearId, string AcademicYearName, DateOnly EnrolledOn);
 public sealed record StudentSelfService(Guid StudentId, string AdmissionNumber, string FirstName, string LastName, DateOnly DateOfBirth, string? Email, string Status, StudentEnrollmentSummary? CurrentEnrollment);
 public sealed record StaffSelfService(Guid StaffId, string StaffNumber, string FirstName, string LastName, string Category, string Status, string CampusName, string? DepartmentName, string? PositionName, string? WorkEmail, string? Phone, DateOnly HireDate, long TeachingAssignmentCount);
+public sealed record OperationalReadinessStep(string Key, string Label, bool Complete, string Detail, string Href);
+public sealed record OperationalReadiness(int CompletedSteps, int TotalSteps, int Percentage, IReadOnlyList<OperationalReadinessStep> Steps);
 
 public interface IPortalDashboardService
 {
@@ -22,6 +24,7 @@ public interface IPortalDashboardService
     Task<IReadOnlyList<FamilyStudentSummary>> GetFamilyStudentsAsync(Guid userId, CancellationToken ct = default);
     Task<StudentSelfService?> GetStudentSelfServiceAsync(Guid userId, CancellationToken ct = default);
     Task<StaffSelfService?> GetStaffSelfServiceAsync(Guid userId, CancellationToken ct = default);
+    Task<OperationalReadiness> GetOperationalReadinessAsync(Guid userId, CancellationToken ct = default);
 }
 
 public sealed class PortalDashboardService(
@@ -139,6 +142,32 @@ public sealed class PortalDashboardService(
         var assignmentCount = await db.TeachingAssignments.LongCountAsync(x => x.StaffId == staff.Id, ct);
         return new(staff.Id, staff.StaffNumber, staff.FirstName, staff.LastName, staff.Category.ToString(), staff.Status.ToString(), campusName,
             departmentName, positionName, staff.WorkEmail, staff.Phone, staff.HireDate, assignmentCount);
+    }
+
+    public async Task<OperationalReadiness> GetOperationalReadinessAsync(Guid userId, CancellationToken ct = default)
+    {
+        var effectivePermissions = await permissions.GetEffectivePermissionsAsync(userId, ct);
+        var presentation = await profiles.GetPresentationAsync(userId, effectivePermissions, ct);
+        if (!presentation.Audiences.Contains("SchoolAdmin")) throw new UnauthorizedAccessException("The school management workspace is not available for this account.");
+
+        var steps = new List<OperationalReadinessStep>();
+        if (await CanUseAsync(effectivePermissions, Permissions.SchoolsView, FeatureKeys.SchoolAdministration, ct))
+        {
+            steps.Add(new("school-profile", "Complete school profile", await db.SchoolProfiles.AnyAsync(ct), "Add the school's identity and contact information.", "/portal/school"));
+            steps.Add(new("campus", "Configure an active campus", await db.Campuses.AnyAsync(x => x.IsActive, ct), "At least one active campus is required for operations.", "/portal/school"));
+        }
+        if (await CanUseAsync(effectivePermissions, Permissions.AcademicsView, FeatureKeys.AcademicStructure, ct))
+            steps.Add(new("academics", "Configure academic structure", await db.AcademicYears.AnyAsync(ct) && await db.ClassSections.AnyAsync(x => x.IsActive, ct), "Create an academic year and at least one active class.", "/portal/academics"));
+        if (await CanUseAsync(effectivePermissions, Permissions.StaffView, FeatureKeys.StaffManagement, ct))
+            steps.Add(new("staff", "Create staff profiles", await db.StaffProfiles.AnyAsync(ct), "Add the people who operate and teach in the school.", "/portal/staff"));
+        if (await CanUseAsync(effectivePermissions, Permissions.StudentsView, FeatureKeys.StudentInformation, ct))
+            steps.Add(new("students", "Enrol students", await db.Enrollments.AnyAsync(x => x.Status == EnrollmentStatus.Active, ct), "Create learner records and place them into classes.", "/portal/students"));
+        if (await CanUseAsync(effectivePermissions, Permissions.GuardiansView, FeatureKeys.GuardianManagement, ct))
+            steps.Add(new("guardians", "Connect families", await db.StudentGuardians.AnyAsync(ct), "Link at least one guardian relationship to a learner.", "/portal/guardians"));
+        if (effectivePermissions.Contains(Permissions.TenantSettingsManage))
+            steps.Add(new("subscription", "Activate a subscription", await db.TenantSubscriptions.AnyAsync(x => x.IsActive, ct), "Confirm an active plan for the school.", "/portal/subscription"));
+        var completed = steps.Count(x => x.Complete);
+        return new(completed, steps.Count, steps.Count == 0 ? 0 : (int)Math.Round(completed * 100m / steps.Count, MidpointRounding.AwayFromZero), steps);
     }
 
     private async Task<PortalDashboard> AdministrativeDashboardAsync(string audience, IReadOnlyCollection<string> permissions, CancellationToken ct)

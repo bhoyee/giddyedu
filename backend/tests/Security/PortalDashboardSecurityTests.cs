@@ -142,6 +142,21 @@ public sealed class PortalDashboardSecurityTests
         Assert.Equal("own@example.test", result.WorkEmail);
     }
 
+    [Fact]
+    public async Task OperationalReadiness_DoesNotUseAnotherTenantsConfiguration()
+    {
+        var context = new TenantContextAccessor(); var tenantA = Guid.NewGuid(); var tenantB = Guid.NewGuid();
+        var options = new DbContextOptionsBuilder<GiddyEduDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        await using var db = new GiddyEduDbContext(options, context); var now = DateTimeOffset.UtcNow;
+        context.Set(tenantB, null); db.Campuses.Add(new Campus(Guid.NewGuid(), tenantB, "Other Campus", "OTHER", now)); await db.SaveChangesAsync();
+        context.Set(tenantA, null); db.ChangeTracker.Clear();
+        var service = new PortalDashboardService(db, new StubPermissions([Permissions.SchoolsView]), new StubProfile(["SchoolAdmin"]), new EnabledEntitlements());
+
+        var result = await service.GetOperationalReadinessAsync(Guid.NewGuid());
+
+        Assert.False(result.Steps.Single(x => x.Key == "campus").Complete);
+    }
+
     private sealed class StubPermissions(IReadOnlyCollection<string> values) : IPermissionService
     {
         public Task<bool> HasPermissionAsync(Guid userId, string permission, CancellationToken cancellationToken = default) => Task.FromResult(values.Contains(permission));
