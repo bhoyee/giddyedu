@@ -47,6 +47,8 @@ public interface IFileObjectStorage
     string CreateDownloadUrl(string objectKey);
     Task<bool> ExistsAsync(string objectKey, CancellationToken cancellationToken);
     Task DeleteAsync(string objectKey, CancellationToken cancellationToken);
+    Task<string> ReadTextAsync(string objectKey, long maximumBytes, CancellationToken cancellationToken);
+    Task WriteTextAsync(string objectKey, string contentType, string value, CancellationToken cancellationToken);
 }
 
 public sealed class R2FileObjectStorage(IAmazonS3 client, IOptions<R2Options> options) : IFileObjectStorage
@@ -60,6 +62,27 @@ public sealed class R2FileObjectStorage(IAmazonS3 client, IOptions<R2Options> op
         catch (AmazonS3Exception exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound) { return false; }
     }
     public Task DeleteAsync(string objectKey, CancellationToken cancellationToken) => client.DeleteObjectAsync(settings.Bucket, objectKey, cancellationToken);
+    public async Task<string> ReadTextAsync(string objectKey, long maximumBytes, CancellationToken cancellationToken)
+    {
+        if (maximumBytes <= 0) throw new ArgumentOutOfRangeException(nameof(maximumBytes));
+        using var response = await client.GetObjectAsync(settings.Bucket, objectKey, cancellationToken);
+        if (response.ContentLength > maximumBytes) throw new InvalidOperationException("The stored file exceeds the permitted import size.");
+        using var buffer = new MemoryStream();
+        var chunk = new byte[81920];
+        while (true)
+        {
+            var read = await response.ResponseStream.ReadAsync(chunk.AsMemory(), cancellationToken);
+            if (read == 0) break;
+            if (buffer.Length + read > maximumBytes) throw new InvalidOperationException("The stored file exceeds the permitted import size.");
+            await buffer.WriteAsync(chunk.AsMemory(0, read), cancellationToken);
+        }
+        return System.Text.Encoding.UTF8.GetString(buffer.ToArray());
+    }
+    public async Task WriteTextAsync(string objectKey, string contentType, string value, CancellationToken cancellationToken)
+    {
+        using var content = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(value));
+        await client.PutObjectAsync(new PutObjectRequest { BucketName = settings.Bucket, Key = objectKey, ContentType = contentType, InputStream = content }, cancellationToken);
+    }
 }
 
 public static class R2ClientFactory

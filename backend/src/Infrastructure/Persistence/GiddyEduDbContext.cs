@@ -67,6 +67,7 @@ public sealed class GiddyEduDbContext(
     public DbSet<StudentSensitiveRecord> StudentSensitiveRecords => Set<StudentSensitiveRecord>();
     public DbSet<AdmissionReview> AdmissionReviews => Set<AdmissionReview>();
     public DbSet<AdmissionInterview> AdmissionInterviews => Set<AdmissionInterview>();
+    public DbSet<ImportOperation> ImportOperations => Set<ImportOperation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -150,6 +151,7 @@ public sealed class GiddyEduDbContext(
         modelBuilder.Entity<StudentSensitiveRecord>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<AdmissionReview>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<AdmissionInterview>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
+        modelBuilder.Entity<ImportOperation>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
     }
 
     private static void ConfigureTenancy(ModelBuilder b)
@@ -240,6 +242,7 @@ public sealed class GiddyEduDbContext(
 
     private static void ConfigureStudentLifecycle(ModelBuilder b)
     {
+        b.Entity<ImportOperation>(e => { e.ToTable("ImportOperations"); e.HasKey(x => x.Id); e.Property(x => x.ImportType).HasMaxLength(50); e.Property(x => x.ErrorSummary).HasMaxLength(2000); e.HasIndex(x => new { x.TenantId, x.CreatedAtUtc }); e.HasIndex(x => new { x.TenantId, x.Status }); });
         b.Entity<Applicant>(e => { e.ToTable("Applicants"); e.HasKey(x => x.Id); e.HasAlternateKey(x => new { x.TenantId, x.Id }); e.Property(x => x.ApplicationNumber).HasMaxLength(50); e.Property(x => x.FirstName).HasMaxLength(100); e.Property(x => x.LastName).HasMaxLength(100); e.Property(x => x.Email).HasMaxLength(320); e.Property(x => x.Phone).HasMaxLength(30); e.Property(x => x.PreviousSchool).HasMaxLength(200); e.Property(x => x.Source).HasMaxLength(100); e.HasIndex(x => new { x.TenantId, x.ApplicationNumber }).IsUnique(); e.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict); });
         b.Entity<Student>(e => { e.ToTable("Students"); e.HasKey(x => x.Id); e.HasAlternateKey(x => new { x.TenantId, x.Id }); e.Property(x => x.AdmissionNumber).HasMaxLength(50); e.Property(x => x.FirstName).HasMaxLength(100); e.Property(x => x.LastName).HasMaxLength(100); e.HasIndex(x => new { x.TenantId, x.AdmissionNumber }).IsUnique(); e.HasIndex(x => new { x.TenantId, x.SourceApplicantId }).IsUnique().HasFilter("\"SourceApplicantId\" IS NOT NULL"); e.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict); e.HasOne<Applicant>().WithOne().HasForeignKey<Student>(x => new { x.TenantId, x.SourceApplicantId }).HasPrincipalKey<Applicant>(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict).IsRequired(false); });
         b.Entity<Guardian>(e => { e.ToTable("Guardians"); e.HasKey(x => x.Id); e.HasAlternateKey(x => new { x.TenantId, x.Id }); e.Property(x => x.FirstName).HasMaxLength(100); e.Property(x => x.LastName).HasMaxLength(100); e.Property(x => x.Phone).HasMaxLength(30); e.Property(x => x.Email).HasMaxLength(320); e.HasIndex(x => new { x.TenantId, x.Phone }); e.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict); e.HasOne<PlatformUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict).IsRequired(false); });

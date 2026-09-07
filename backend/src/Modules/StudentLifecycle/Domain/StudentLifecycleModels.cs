@@ -2,6 +2,34 @@ using GiddyEdu.BuildingBlocks.Tenancy;
 
 namespace GiddyEdu.Modules.StudentLifecycle.Domain;
 
+public enum ImportOperationStatus { AwaitingUpload, Queued, Processing, Completed, Failed }
+
+public sealed class ImportOperation : GiddyEdu.BuildingBlocks.Tenancy.ITenantOwned
+{
+    private ImportOperation() { }
+    public ImportOperation(Guid id, Guid tenantId, string importType, Guid requestedByUserId, DateTimeOffset now)
+    { if (id == Guid.Empty || tenantId == Guid.Empty || requestedByUserId == Guid.Empty) throw new ArgumentException("Import identifiers are required."); Id = id; TenantId = tenantId; ImportType = Required(importType, 50); RequestedByUserId = requestedByUserId; Status = ImportOperationStatus.AwaitingUpload; CreatedAtUtc = now; }
+    public Guid Id { get; private set; }
+    public Guid TenantId { get; private set; }
+    public string ImportType { get; private set; } = null!;
+    public Guid RequestedByUserId { get; private set; }
+    public Guid? SourceFileId { get; private set; }
+    public Guid? ErrorFileId { get; private set; }
+    public ImportOperationStatus Status { get; private set; }
+    public int TotalRows { get; private set; }
+    public int ImportedRows { get; private set; }
+    public int RejectedRows { get; private set; }
+    public string? ErrorSummary { get; private set; }
+    public DateTimeOffset CreatedAtUtc { get; private set; }
+    public DateTimeOffset? StartedAtUtc { get; private set; }
+    public DateTimeOffset? CompletedAtUtc { get; private set; }
+    public void Queue(Guid sourceFileId) { if (Status != ImportOperationStatus.AwaitingUpload || sourceFileId == Guid.Empty) throw new InvalidOperationException("Only a completed import upload can be queued."); SourceFileId = sourceFileId; Status = ImportOperationStatus.Queued; }
+    public void Start(DateTimeOffset now) { if (Status != ImportOperationStatus.Queued) throw new InvalidOperationException("Only queued imports can start."); Status = ImportOperationStatus.Processing; StartedAtUtc = now; ErrorSummary = null; }
+    public void Complete(int totalRows, int importedRows, DateTimeOffset now) { if (Status != ImportOperationStatus.Processing) throw new InvalidOperationException("Only processing imports can complete."); TotalRows = totalRows; ImportedRows = importedRows; RejectedRows = 0; Status = ImportOperationStatus.Completed; CompletedAtUtc = now; }
+    public void Fail(int totalRows, int rejectedRows, string error, DateTimeOffset now, Guid? errorFileId = null) { TotalRows = Math.Max(0, totalRows); RejectedRows = Math.Max(0, rejectedRows); ErrorSummary = Required(error, 2000); ErrorFileId = errorFileId; Status = ImportOperationStatus.Failed; CompletedAtUtc = now; }
+    private static string Required(string value, int max) { if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("A value is required."); var result = value.Trim(); if (result.Length > max) throw new ArgumentException($"Value exceeds {max} characters."); return result; }
+}
+
 public enum ApplicationStatus { Draft, Submitted, UnderReview, Waitlisted, Offered, Accepted, Rejected, Withdrawn, Converted }
 public enum StudentStatus { Active, Suspended, Withdrawn, Graduated, Alumni }
 public enum GuardianRelationshipType { Mother, Father, Parent, LegalGuardian, Relative, Sponsor, Other }

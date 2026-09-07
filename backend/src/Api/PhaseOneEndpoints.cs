@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text;
 using GiddyEdu.Infrastructure.Academics;
 using GiddyEdu.Infrastructure.Platform;
 using GiddyEdu.Infrastructure.Schools;
@@ -20,6 +21,7 @@ using Microsoft.EntityFrameworkCore;
 public static class PhaseOneEndpoints
 {
     public sealed record CompleteDocumentUploadInput(string Checksum);
+    public sealed record CompleteImportUploadInput(string Checksum);
     public static IEndpointRouteBuilder MapPhaseOneEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/api/v1/plans", async (ISubscriptionManagementService service, CancellationToken ct) => Results.Ok(await service.ListPlansAsync(ct))).AllowAnonymous();
@@ -85,6 +87,12 @@ public static class PhaseOneEndpoints
         admissions.MapPut("/interviews/{interviewId:guid}/outcome", CompleteAdmissionInterviewAsync);
         admissions.MapPost("/applicants/{applicantId:guid}/convert", ConvertApplicantAsync);
         admissions.MapPost("/applicants/{applicantId:guid}/communications", SendApplicantCommunicationAsync);
+        admissions.MapGet("/applicants/export.csv", ExportApplicantsAsync);
+        admissions.MapPost("/applicants/imports/uploads", BeginApplicantImportAsync);
+        admissions.MapPost("/applicants/imports/{operationId:guid}/complete", CompleteApplicantImportAsync);
+        admissions.MapGet("/applicants/imports/{operationId:guid}", GetApplicantImportAsync);
+        admissions.MapGet("/applicants/imports", ListApplicantImportsAsync);
+        admissions.MapGet("/applicants/imports/{operationId:guid}/errors", DownloadApplicantImportErrorsAsync);
         var students = endpoints.MapGroup("/api/v1/students");
         students.MapGet("/", ListStudentsAsync);
         students.MapGet("/{studentId:guid}", GetStudentAsync);
@@ -94,11 +102,23 @@ public static class PhaseOneEndpoints
         students.MapGet("/{studentId:guid}/sensitive", GetStudentSensitiveAsync);
         students.MapPut("/{studentId:guid}/sensitive", UpsertStudentSensitiveAsync);
         students.MapPost("/{studentId:guid}/guardians", LinkGuardianAsync);
+        students.MapGet("/export.csv", ExportStudentsAsync);
+        students.MapPost("/imports/uploads", BeginStudentImportAsync);
+        students.MapPost("/imports/{operationId:guid}/complete", CompleteStudentImportAsync);
+        students.MapGet("/imports/{operationId:guid}", GetStudentImportAsync);
+        students.MapGet("/imports", ListStudentImportsAsync);
+        students.MapGet("/imports/{operationId:guid}/errors", DownloadStudentImportErrorsAsync);
         var guardians = endpoints.MapGroup("/api/v1/guardians");
         guardians.MapGet("/", ListGuardiansAsync);
         guardians.MapGet("/{guardianId:guid}", GetGuardianAsync);
         guardians.MapPost("/", CreateGuardianAsync);
         guardians.MapPut("/{guardianId:guid}", UpdateGuardianAsync);
+        guardians.MapGet("/export.csv", ExportGuardiansAsync);
+        guardians.MapPost("/imports/uploads", BeginGuardianImportAsync);
+        guardians.MapPost("/imports/{operationId:guid}/complete", CompleteGuardianImportAsync);
+        guardians.MapGet("/imports/{operationId:guid}", GetGuardianImportAsync);
+        guardians.MapGet("/imports", ListGuardianImportsAsync);
+        guardians.MapGet("/imports/{operationId:guid}/errors", DownloadGuardianImportErrorsAsync);
         return endpoints;
     }
 
@@ -213,6 +233,26 @@ public static class PhaseOneEndpoints
     { var actor = UserId(principal); var id = await service.ConvertAsync(actor, applicantId, input, ct); await audit.WriteAsync(actor, "Applicant.Convert", "Student", id.ToString(), "Succeeded", JsonSerializer.Serialize(new { applicantId }), ct); return Results.Created($"/api/v1/students/{id}", new { id }); }
     private static async Task<IResult> SendApplicantCommunicationAsync(Guid applicantId, ApplicantCommunicationInput input, ClaimsPrincipal principal, IAdmissionsCommunicationService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); var id = await service.SendAsync(actor, applicantId, input, ct); await audit.WriteAsync(actor, "Applicant.CommunicationQueue", "NotificationMessage", id.ToString(), "Succeeded", JsonSerializer.Serialize(new { applicantId, input.Type }), ct); return Results.Accepted($"/api/v1/notifications/{id}", new { id }); }
+    private static Task<IResult> ExportApplicantsAsync(ClaimsPrincipal principal, IDataPortabilityService service, IAuditWriter audit, CancellationToken ct) => ExportAsync("applicants.csv", "Applicant.Export", principal, service.ExportApplicantsAsync, audit, ct);
+    private static async Task<IResult> BeginApplicantImportAsync(ImportUploadInput input, ClaimsPrincipal principal, IApplicantImportService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); var upload = await service.BeginAsync(actor, input, ct); await audit.WriteAsync(actor, "Applicant.ImportUploadBegin", "ImportOperation", upload.OperationId.ToString(), "Succeeded", null, ct); return Results.Created($"/api/v1/admissions/applicants/imports/{upload.OperationId}", upload); }
+    private static async Task<IResult> CompleteApplicantImportAsync(Guid operationId, CompleteImportUploadInput input, ClaimsPrincipal principal, IApplicantImportService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.QueueAsync(actor, operationId, input.Checksum, ct); await audit.WriteAsync(actor, "Applicant.ImportQueue", "ImportOperation", operationId.ToString(), "Succeeded", null, ct); return Results.Accepted($"/api/v1/admissions/applicants/imports/{operationId}", new { operationId }); }
+    private static async Task<IResult> GetApplicantImportAsync(Guid operationId, ClaimsPrincipal principal, IApplicantImportService service, CancellationToken ct) => Results.Ok(await service.GetAsync(UserId(principal), operationId, ct));
+    private static async Task<IResult> ListApplicantImportsAsync(ClaimsPrincipal principal, IApplicantImportService service, CancellationToken ct) => Results.Ok(await service.ListAsync(UserId(principal), ct));
+    private static async Task<IResult> DownloadApplicantImportErrorsAsync(Guid operationId, ClaimsPrincipal principal, IApplicantImportService service, CancellationToken ct) => Results.Redirect(await service.GetErrorDownloadAsync(UserId(principal), operationId, ct));
+    private static Task<IResult> ExportStudentsAsync(ClaimsPrincipal principal, IDataPortabilityService service, IAuditWriter audit, CancellationToken ct) => ExportAsync("students.csv", "Student.Export", principal, service.ExportStudentsAsync, audit, ct);
+    private static Task<IResult> ExportGuardiansAsync(ClaimsPrincipal principal, IDataPortabilityService service, IAuditWriter audit, CancellationToken ct) => ExportAsync("guardians.csv", "Guardian.Export", principal, service.ExportGuardiansAsync, audit, ct);
+    private static async Task<IResult> BeginStudentImportAsync(ImportUploadInput input, ClaimsPrincipal principal, IProfileImportService service, IAuditWriter audit, CancellationToken ct) => await BeginProfileImportAsync(input, principal, service.BeginStudentsAsync, "Student.ImportUploadBegin", audit, ct);
+    private static async Task<IResult> BeginGuardianImportAsync(ImportUploadInput input, ClaimsPrincipal principal, IProfileImportService service, IAuditWriter audit, CancellationToken ct) => await BeginProfileImportAsync(input, principal, service.BeginGuardiansAsync, "Guardian.ImportUploadBegin", audit, ct);
+    private static async Task<IResult> CompleteStudentImportAsync(Guid operationId, CompleteImportUploadInput input, ClaimsPrincipal principal, IProfileImportService service, IAuditWriter audit, CancellationToken ct) => await CompleteProfileImportAsync(operationId, input, principal, service.QueueStudentsAsync, "Student.ImportQueue", "students", audit, ct);
+    private static async Task<IResult> CompleteGuardianImportAsync(Guid operationId, CompleteImportUploadInput input, ClaimsPrincipal principal, IProfileImportService service, IAuditWriter audit, CancellationToken ct) => await CompleteProfileImportAsync(operationId, input, principal, service.QueueGuardiansAsync, "Guardian.ImportQueue", "guardians", audit, ct);
+    private static async Task<IResult> GetStudentImportAsync(Guid operationId, ClaimsPrincipal principal, IProfileImportService service, CancellationToken ct) => Results.Ok(await service.GetStudentsAsync(UserId(principal), operationId, ct));
+    private static async Task<IResult> GetGuardianImportAsync(Guid operationId, ClaimsPrincipal principal, IProfileImportService service, CancellationToken ct) => Results.Ok(await service.GetGuardiansAsync(UserId(principal), operationId, ct));
+    private static async Task<IResult> ListStudentImportsAsync(ClaimsPrincipal principal, IProfileImportService service, CancellationToken ct) => Results.Ok(await service.ListStudentsAsync(UserId(principal), ct));
+    private static async Task<IResult> ListGuardianImportsAsync(ClaimsPrincipal principal, IProfileImportService service, CancellationToken ct) => Results.Ok(await service.ListGuardiansAsync(UserId(principal), ct));
+    private static async Task<IResult> DownloadStudentImportErrorsAsync(Guid operationId, ClaimsPrincipal principal, IProfileImportService service, CancellationToken ct) => Results.Redirect(await service.GetStudentErrorDownloadAsync(UserId(principal), operationId, ct));
+    private static async Task<IResult> DownloadGuardianImportErrorsAsync(Guid operationId, ClaimsPrincipal principal, IProfileImportService service, CancellationToken ct) => Results.Redirect(await service.GetGuardianErrorDownloadAsync(UserId(principal), operationId, ct));
     private static async Task<IResult> ListStudentsAsync(int page, int pageSize, string? search, ClaimsPrincipal principal, IStudentLifecycleService service, CancellationToken ct) => Results.Ok(await service.ListStudentsAsync(UserId(principal), page, pageSize == 0 ? 25 : pageSize, search, ct));
     private static async Task<IResult> GetStudentAsync(Guid studentId, ClaimsPrincipal principal, IStudentLifecycleService service, CancellationToken ct) => Results.Ok(await service.GetStudentAsync(UserId(principal), studentId, ct));
     private static async Task<IResult> UpdateStudentAsync(Guid studentId, StudentProfileInput input, ClaimsPrincipal principal, IStudentLifecycleService service, IAuditWriter audit, CancellationToken ct)
@@ -239,5 +279,11 @@ public static class PhaseOneEndpoints
     { await audit.WriteAsync(UserId(principal), action, targetType, id.ToString(), "Succeeded", null, ct); return Results.Created($"/api/v1/hr/{targetType.ToLowerInvariant()}/{id}", new { id }); }
     private static async Task<IResult> CreatedLifecycleAsync(Guid id, string targetType, string action, ClaimsPrincipal principal, IAuditWriter audit, CancellationToken ct)
     { await audit.WriteAsync(UserId(principal), action, targetType, id.ToString(), "Succeeded", null, ct); return Results.Created($"/api/v1/{targetType.ToLowerInvariant()}s/{id}", new { id }); }
+    private static async Task<IResult> BeginProfileImportAsync(ImportUploadInput input, ClaimsPrincipal principal, Func<Guid, ImportUploadInput, CancellationToken, Task<ImportUploadInfo>> begin, string action, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); var upload = await begin(actor, input, ct); await audit.WriteAsync(actor, action, "ImportOperation", upload.OperationId.ToString(), "Succeeded", null, ct); return Results.Created($"/api/v1/imports/{upload.OperationId}", upload); }
+    private static async Task<IResult> CompleteProfileImportAsync(Guid operationId, CompleteImportUploadInput input, ClaimsPrincipal principal, Func<Guid, Guid, string, CancellationToken, Task> queue, string action, string route, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await queue(actor, operationId, input.Checksum, ct); await audit.WriteAsync(actor, action, "ImportOperation", operationId.ToString(), "Succeeded", null, ct); return Results.Accepted($"/api/v1/{route}/imports/{operationId}", new { operationId }); }
+    private static async Task<IResult> ExportAsync(string fileName, string action, ClaimsPrincipal principal, Func<Guid, CancellationToken, Task<string>> export, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); var csv = await export(actor, ct); await audit.WriteAsync(actor, action, "Tenant", "current", "Succeeded", null, ct); return Results.File(Encoding.UTF8.GetBytes($"\uFEFF{csv}"), "text/csv; charset=utf-8", fileName); }
     private static Guid UserId(ClaimsPrincipal principal) => Guid.Parse(principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? throw new UnauthorizedAccessException());
 }

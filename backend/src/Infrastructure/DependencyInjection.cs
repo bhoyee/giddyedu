@@ -58,6 +58,12 @@ public static class DependencyInjection
         services.AddScoped<IAccountInvitationService, AccountInvitationService>();
         services.AddScoped<IStudentLifecycleService, StudentLifecycleService>();
         services.AddScoped<IAdmissionsCommunicationService, AdmissionsCommunicationService>();
+        services.AddScoped<IDataPortabilityService, DataPortabilityService>();
+        services.AddScoped<IApplicantImportService, ApplicantImportService>();
+        services.AddScoped<ApplicantImportJob>();
+        services.AddScoped<IProfileImportService, ProfileImportService>();
+        services.AddScoped<ProfileImportJob>();
+        services.AddScoped<IImportErrorReportWriter, ImportErrorReportWriter>();
         services.AddSingleton<IObjectKeyFactory, TenantObjectKeyFactory>();
         services.AddScoped<IAuditWriter, AuditWriter>();
         services.AddScoped<INotificationQueue, NotificationQueue>();

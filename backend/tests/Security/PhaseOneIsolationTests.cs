@@ -99,6 +99,15 @@ public sealed class PhaseOneIsolationTests
     }
 
     [Fact]
+    public async Task ImportOperations_AreTenantIsolated()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
+        fixture.Db.ImportOperations.Add(new ImportOperation(Guid.NewGuid(), fixture.TenantA, "Applicants", Guid.NewGuid(), fixture.Clock.UtcNow));
+        await fixture.Db.SaveChangesAsync(); fixture.Db.ChangeTracker.Clear(); fixture.Context.Set(fixture.TenantB, null);
+        Assert.Empty(await fixture.Db.ImportOperations.ToListAsync());
+    }
+
+    [Fact]
     public async Task GuardianAccess_IsRestrictedToLinkedChildrenAndOwnProfile()
     {
         await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);

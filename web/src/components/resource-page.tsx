@@ -10,15 +10,18 @@ const noFields: CreateField[] = [];
 type CreateField = { name: string; label: string; type?: "text" | "email" | "date" | "number" | "select" | "file"; required?: boolean; numeric?: boolean; options?: { value: string; label: string }[]; optionsEndpoint?: string; optionsCollectionKey?: string; optionLabelKey?: string };
 export type CreateConfig = { endpoint: string; title: string; method?: "POST" | "PUT"; fields: CreateField[] };
 export type RecordActionConfig = { endpoint: string; title: string; method?: "POST" | "PUT" | "DELETE"; fields?: CreateField[]; payload?: Record<string, string | number | boolean>; itemIdField?: string; documentUpload?: boolean; href?: string };
-export type ResourcePageProps = { title: string; description: string; endpoint: string; fields: { key: string; label: string }[]; collectionKey?: string; emptyMessage: string; create?: CreateConfig; creates?: CreateConfig[]; actions?: RecordActionConfig[]; detailPath?: string };
+export type ResourcePageProps = { title: string; description: string; endpoint: string; fields: { key: string; label: string }[]; collectionKey?: string; emptyMessage: string; create?: CreateConfig; creates?: CreateConfig[]; actions?: RecordActionConfig[]; detailPath?: string; exportEndpoint?: string };
 
-export function ResourcePage({ title, description, endpoint, fields, collectionKey, emptyMessage, create, creates = [], actions = [], detailPath }: ResourcePageProps) {
+export function ResourcePage({ title, description: pageDescription, endpoint, fields, collectionKey, emptyMessage, create, creates = [], actions = [], detailPath, exportEndpoint }: ResourcePageProps) {
   const router = useRouter();
   const [items, setItems] = useState<ResourceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   const createForms = create ? [create, ...creates] : creates;
+  const effectiveExportEndpoint = exportEndpoint ?? (endpoint.startsWith("admissions/applicants") ? "admissions/applicants/export.csv" : endpoint.startsWith("students") ? "students/export.csv" : endpoint.startsWith("guardians") ? "guardians/export.csv" : undefined);
+  const importEndpoint = endpoint.startsWith("admissions/applicants") ? "admissions/applicants/imports" : endpoint.startsWith("students") ? "students/imports" : endpoint.startsWith("guardians") ? "guardians/imports" : undefined;
+  const description = <>{pageDescription}{effectiveExportEndpoint && <a href={`/api/backend/${effectiveExportEndpoint}`} className="ml-4 inline-flex rounded-xl border border-emerald-800 px-4 py-2 font-bold text-emerald-900">Export CSV</a>}{importEndpoint && <ImportCsv endpoint={importEndpoint} onCompleted={() => setRevision(value => value + 1)} />}</>;
 
   useEffect(() => {
     void fetch(`/api/backend/${endpoint}`, { cache: "no-store" }).then(async response => {
@@ -35,6 +38,32 @@ export function ResourcePage({ title, description, endpoint, fields, collectionK
 
 function format(value: RecordValue | undefined) { if (value === null || value === undefined || value === "") return "—"; if (typeof value === "boolean") return value ? "Yes" : "No"; return String(value); }
 function Panel({ children }: { children: React.ReactNode }) { return <div className="mt-8 rounded-3xl border border-slate-200 bg-white p-8 text-slate-600">{children}</div>; }
+
+function ImportCsv({ endpoint, onCompleted }: { endpoint: string; onCompleted: () => void }) {
+  type ImportInfo = { id:string; status:number; totalRows:number; importedRows:number; rejectedRows:number; errorSummary?:string; errorFileId?:string; createdAtUtc:string };
+  const [busy, setBusy] = useState(false); const [message, setMessage] = useState(""); const [history, setHistory] = useState<ImportInfo[]>([]);
+  async function refresh() { const response = await fetch(`/api/backend/${endpoint}`, {cache:"no-store"}); if (response.ok) { const body = await response.json(); if (Array.isArray(body)) setHistory(body); } }
+  useEffect(() => { void fetch(`/api/backend/${endpoint}`, {cache:"no-store"}).then(async response => { if (!response.ok) return; const body = await response.json(); if (Array.isArray(body)) setHistory(body); }); }, [endpoint]);
+  async function select(file: File | undefined) {
+    if (!file) return; setBusy(true); setMessage("Uploading import…");
+    try {
+      if (!file.name.toLowerCase().endsWith(".csv") || file.size > 5 * 1024 * 1024) throw new Error("Choose a CSV file no larger than 5 MB.");
+      const begin = await fetch(`/api/backend/${endpoint}/uploads`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({fileName:file.name, contentType:file.type || "text/csv", sizeBytes:file.size}) });
+      if (!begin.ok) throw new Error("The import upload could not be started.");
+      const upload = await begin.json() as { operationId:string; uploadUrl:string };
+      const stored = await fetch(upload.uploadUrl, { method:"PUT", headers:{"Content-Type":file.type || "text/csv"}, body:file });
+      if (!stored.ok) throw new Error("The CSV could not be stored.");
+      const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer()); const checksum = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2,"0")).join("");
+      const queued = await fetch(`/api/backend/${endpoint}/${upload.operationId}/complete`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({checksum}) });
+      if (!queued.ok) throw new Error("The import could not be queued.");
+      setMessage("Import queued. Processing continues in the background."); await refresh();
+      for (let attempt = 0; attempt < 60; attempt++) { await new Promise(resolve => setTimeout(resolve, 1000)); const statusResponse = await fetch(`/api/backend/${endpoint}/${upload.operationId}`, {cache:"no-store"}); if (!statusResponse.ok) break; const status = await statusResponse.json() as ImportInfo; setMessage(status.status === 3 ? `Imported ${status.importedRows} row(s).` : status.status === 4 ? `Import failed: ${status.errorSummary ?? "Download the error report."}` : "Import is processing…"); if (status.status === 3 || status.status === 4) { await refresh(); onCompleted(); break; } }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "The import failed."); }
+    finally { setBusy(false); }
+  }
+  const names = ["Awaiting upload", "Queued", "Processing", "Completed", "Failed"];
+  return <span className="ml-2 inline-flex flex-wrap items-center gap-2"><label className="cursor-pointer rounded-xl border border-emerald-800 px-4 py-2 font-bold text-emerald-900">{busy ? "Processing…" : "Import CSV"}<input className="sr-only" type="file" accept=".csv,text/csv" disabled={busy} onChange={event => void select(event.target.files?.[0])} /></label>{message && <span role="status" className="text-xs">{message}</span>}{history.length > 0 && <span className="basis-full text-xs"><strong>Recent imports:</strong>{history.slice(0,5).map(item => <span key={item.id} className="ml-2 inline-block">{new Date(item.createdAtUtc).toLocaleString()} — {names[item.status] ?? "Unknown"} ({item.importedRows} imported, {item.rejectedRows} rejected){item.errorFileId && <a className="ml-1 font-bold underline" href={`/api/backend/${endpoint}/${item.id}/errors`}>Error CSV</a>}</span>)}</span>}</span>;
+}
 
 function CreateRecord({ config, onCreated }: { config: CreateConfig; onCreated: () => void }) {
   const [open, setOpen] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [remoteOptions, setRemoteOptions] = useState<Record<string, { value: string; label: string }[]>>({});

@@ -19,7 +19,14 @@ async function forward(request: NextRequest, context: RouteContext) {
   const send = (token: string) => fetch(target, { method: request.method, headers: { Authorization: `Bearer ${token}`, "Content-Type": request.headers.get("content-type") ?? "application/json", "X-Correlation-ID": request.headers.get("x-correlation-id") ?? crypto.randomUUID() }, body, cache: "no-store" });
   let upstream = await send(accessToken);
   if (upstream.status === 401 && refreshToken && !refreshed) { refreshed = await refreshAuthentication(refreshToken); if (refreshed) upstream = await send(refreshed.accessToken); }
-  const payload = await parseApiResponse(upstream); const response = payload === null ? new NextResponse(null, { status: upstream.status }) : NextResponse.json(payload, { status: upstream.status });
+  const contentType = upstream.headers.get("content-type") ?? "";
+  let response: NextResponse;
+  if (contentType.includes("application/json") || contentType.includes("application/problem+json")) {
+    const payload = await parseApiResponse(upstream); response = payload === null ? new NextResponse(null, { status: upstream.status }) : NextResponse.json(payload, { status: upstream.status });
+  } else {
+    response = new NextResponse(await upstream.arrayBuffer(), { status: upstream.status, headers: { "Content-Type": contentType || "application/octet-stream" } });
+    const disposition = upstream.headers.get("content-disposition"); if (disposition) response.headers.set("Content-Disposition", disposition);
+  }
   if (refreshed) setAuthenticationCookies(response, refreshed); else if (upstream.status === 401) clearAuthenticationCookies(response);
   return response;
 }

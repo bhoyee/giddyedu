@@ -4,6 +4,7 @@ using GiddyEdu.Modules.Hr.Domain;
 using GiddyEdu.Modules.StudentLifecycle.Domain;
 using GiddyEdu.Modules.Identity.Domain;
 using GiddyEdu.Modules.Platform.Domain;
+using GiddyEdu.Infrastructure.StudentLifecycle;
 
 namespace GiddyEdu.UnitTests;
 
@@ -101,5 +102,48 @@ public sealed class PhaseOneDomainTests
         Assert.Throws<ArgumentException>(() => file.MarkAvailable("not-a-checksum"));
         file.MarkAvailable(new string('a', 64));
         Assert.Equal(StoredFileStatus.Available, file.Status); Assert.Equal(new string('A', 64), file.Checksum);
+    }
+
+    [Theory]
+    [InlineData("=2+2", "\"'=2+2\"")]
+    [InlineData("+441234567", "\"'+441234567\"")]
+    [InlineData("Ada \"Ace\"", "\"Ada \"\"Ace\"\"\"")]
+    [InlineData(null, "\"\"")]
+    public void CsvExport_EscapesUnsafeSpreadsheetValues(string? input, string expected)
+    {
+        Assert.Equal(expected, DataPortabilityService.EscapeCsvCell(input));
+    }
+
+    [Fact]
+    public void CsvImport_ParsesQuotedCommasEscapedQuotesAndLineBreaks()
+    {
+        var rows = DataPortabilityService.ParseCsv("Name,Notes\r\n\"Ada, A.\",\"Said \"\"hello\"\"\"\r\n");
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("Ada, A.", rows[1][0]);
+        Assert.Equal("Said \"hello\"", rows[1][1]);
+    }
+
+    [Fact]
+    public void CsvImport_RejectsUnterminatedAndOversizedInput()
+    {
+        Assert.Throws<FormatException>(() => DataPortabilityService.ParseCsv("Name\r\n\"Ada"));
+        Assert.Throws<FormatException>(() => DataPortabilityService.ParseCsv("Name\r\nAda\r\nGrace", maximumRows: 1));
+    }
+
+    [Fact]
+    public void ImportOperation_EnforcesLifecycleAndCapturesCounts()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var operation = new ImportOperation(Guid.NewGuid(), Guid.NewGuid(), "Applicants", Guid.NewGuid(), now);
+        Assert.Equal(ImportOperationStatus.AwaitingUpload, operation.Status);
+        Assert.Throws<InvalidOperationException>(() => operation.Start(now));
+
+        operation.Queue(Guid.NewGuid());
+        operation.Start(now.AddSeconds(1));
+        operation.Complete(12, 12, now.AddSeconds(2));
+
+        Assert.Equal(ImportOperationStatus.Completed, operation.Status);
+        Assert.Equal(12, operation.ImportedRows);
+        Assert.Equal(0, operation.RejectedRows);
     }
 }
