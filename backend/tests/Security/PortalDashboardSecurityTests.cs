@@ -121,6 +121,27 @@ public sealed class PortalDashboardSecurityTests
         Assert.Equal(classId, result.CurrentEnrollment?.ClassSectionId);
     }
 
+    [Fact]
+    public async Task StaffSelfService_ReturnsOnlyTheActorsLinkedEmploymentRecord()
+    {
+        var context = new TenantContextAccessor(); var tenantId = Guid.NewGuid(); context.Set(tenantId, null);
+        var options = new DbContextOptionsBuilder<GiddyEduDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        await using var db = new GiddyEduDbContext(options, context);
+        var actor = Guid.NewGuid(); var campusId = Guid.NewGuid(); var ownStaffId = Guid.NewGuid(); var now = DateTimeOffset.UtcNow;
+        db.Campuses.Add(new Campus(campusId, tenantId, "Main Campus", "MAIN", now));
+        var own = new StaffProfile(ownStaffId, tenantId, "OWN-1", "Own", "Staff", StaffCategory.Administrative, campusId, null, null, "own@example.test", null, new(2026, 9, 1), now);
+        own.LinkUser(actor, now);
+        db.StaffProfiles.AddRange(own, new StaffProfile(Guid.NewGuid(), tenantId, "OTHER-1", "Other", "Staff", StaffCategory.Administrative, campusId, null, null, null, null, new(2026, 9, 1), now));
+        await db.SaveChangesAsync();
+        var service = new PortalDashboardService(db, new StubPermissions([Permissions.StaffView]), new StubProfile(["Staff"]), new EnabledEntitlements());
+
+        var result = await service.GetStaffSelfServiceAsync(actor);
+
+        Assert.NotNull(result);
+        Assert.Equal(ownStaffId, result.StaffId);
+        Assert.Equal("own@example.test", result.WorkEmail);
+    }
+
     private sealed class StubPermissions(IReadOnlyCollection<string> values) : IPermissionService
     {
         public Task<bool> HasPermissionAsync(Guid userId, string permission, CancellationToken cancellationToken = default) => Task.FromResult(values.Contains(permission));

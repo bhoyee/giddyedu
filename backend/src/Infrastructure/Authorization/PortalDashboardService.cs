@@ -13,6 +13,7 @@ public sealed record TeachingClassSummary(Guid AssignmentId, Guid ClassSectionId
 public sealed record FamilyStudentSummary(Guid StudentId, string AdmissionNumber, string FirstName, string LastName, string Relationship, bool IsPrimaryGuardian, Guid? ClassSectionId, string? ClassName);
 public sealed record StudentEnrollmentSummary(Guid EnrollmentId, Guid ClassSectionId, string ClassName, string ClassCode, Guid AcademicYearId, string AcademicYearName, DateOnly EnrolledOn);
 public sealed record StudentSelfService(Guid StudentId, string AdmissionNumber, string FirstName, string LastName, DateOnly DateOfBirth, string? Email, string Status, StudentEnrollmentSummary? CurrentEnrollment);
+public sealed record StaffSelfService(Guid StaffId, string StaffNumber, string FirstName, string LastName, string Category, string Status, string CampusName, string? DepartmentName, string? PositionName, string? WorkEmail, string? Phone, DateOnly HireDate, long TeachingAssignmentCount);
 
 public interface IPortalDashboardService
 {
@@ -20,6 +21,7 @@ public interface IPortalDashboardService
     Task<IReadOnlyList<TeachingClassSummary>> GetTeachingClassesAsync(Guid userId, CancellationToken ct = default);
     Task<IReadOnlyList<FamilyStudentSummary>> GetFamilyStudentsAsync(Guid userId, CancellationToken ct = default);
     Task<StudentSelfService?> GetStudentSelfServiceAsync(Guid userId, CancellationToken ct = default);
+    Task<StaffSelfService?> GetStaffSelfServiceAsync(Guid userId, CancellationToken ct = default);
 }
 
 public sealed class PortalDashboardService(
@@ -121,6 +123,24 @@ public sealed class PortalDashboardService(
         return new(student.Id, student.AdmissionNumber, student.FirstName, student.LastName, student.DateOfBirth, student.Email, student.Status.ToString(), enrollment);
     }
 
+    public async Task<StaffSelfService?> GetStaffSelfServiceAsync(Guid userId, CancellationToken ct = default)
+    {
+        var effectivePermissions = await permissions.GetEffectivePermissionsAsync(userId, ct);
+        var presentation = await profiles.GetPresentationAsync(userId, effectivePermissions, ct);
+        if ((!presentation.Audiences.Contains("Staff") && !presentation.Audiences.Contains("Teacher")) || !await CanUseAsync(effectivePermissions, Permissions.StaffView, FeatureKeys.StaffManagement, ct))
+            throw new UnauthorizedAccessException("The staff workspace is not available for this account.");
+
+        var staff = await db.StaffProfiles.AsNoTracking().Where(x => x.UserId == userId)
+            .Select(x => new { x.Id, x.StaffNumber, x.FirstName, x.LastName, x.Category, x.Status, x.CampusId, x.DepartmentId, x.PositionId, x.WorkEmail, x.Phone, x.HireDate }).SingleOrDefaultAsync(ct);
+        if (staff is null) return null;
+        var campusName = await db.Campuses.Where(x => x.Id == staff.CampusId).Select(x => x.Name).SingleAsync(ct);
+        var departmentName = staff.DepartmentId.HasValue ? await db.Departments.Where(x => x.Id == staff.DepartmentId.Value).Select(x => x.Name).SingleOrDefaultAsync(ct) : null;
+        var positionName = staff.PositionId.HasValue ? await db.Positions.Where(x => x.Id == staff.PositionId.Value).Select(x => x.Name).SingleOrDefaultAsync(ct) : null;
+        var assignmentCount = await db.TeachingAssignments.LongCountAsync(x => x.StaffId == staff.Id, ct);
+        return new(staff.Id, staff.StaffNumber, staff.FirstName, staff.LastName, staff.Category.ToString(), staff.Status.ToString(), campusName,
+            departmentName, positionName, staff.WorkEmail, staff.Phone, staff.HireDate, assignmentCount);
+    }
+
     private async Task<PortalDashboard> AdministrativeDashboardAsync(string audience, IReadOnlyCollection<string> permissions, CancellationToken ct)
     {
         var metrics = new List<PortalDashboardMetric>();
@@ -143,7 +163,7 @@ public sealed class PortalDashboardService(
         var assignments = staffId.HasValue ? db.TeachingAssignments.Where(x => x.StaffId == staffId.Value) : db.TeachingAssignments.Where(_ => false);
         var metrics = new List<PortalDashboardMetric>();
         if (await CanUseAsync(permissions, Permissions.StaffView, FeatureKeys.StaffManagement, ct))
-            metrics.Add(new("profile", "Linked staff profile", staffId.HasValue ? 1 : 0, staffId.HasValue ? $"/portal/staff/{staffId}" : null));
+            metrics.Add(new("profile", "Linked staff profile", staffId.HasValue ? 1 : 0, staffId.HasValue ? "/portal/staff-self-service" : null));
         if (teacherView)
         {
             if (await CanUseAsync(permissions, Permissions.AcademicsView, FeatureKeys.AcademicStructure, ct))
