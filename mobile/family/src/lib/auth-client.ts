@@ -2,7 +2,7 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 type Tokens = { accessToken: string; refreshToken: string; expiresAtUtc: string };
-export type AccessContext = { userId: string; tenantId: string; campusId: string | null; permissions: string[]; entitlements: Record<string, { enabled: boolean }> };
+export type AccessContext = { userId: string; tenantId: string; campusId: string | null; roles: string[]; audiences: string[]; defaultAudience: string; permissions: string[]; entitlements: Record<string, { enabled: boolean }> };
 const tokenKey = 'giddyedu.family.tokens';
 let webTokens: Tokens | null = null;
 

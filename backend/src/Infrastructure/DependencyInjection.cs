@@ -46,6 +46,7 @@ public static class DependencyInjection
         services.AddSingleton<IClock, SystemClock>();
         services.AddScoped<IDomainEventDispatcher, InProcessDomainEventDispatcher>();
         services.AddScoped<IPermissionService, PermissionService>();
+        services.AddScoped<IAccessProfileService, AccessProfileService>();
         services.AddScoped<IFeatureAccessGuard, FeatureAccessGuard>();
         services.AddScoped<TenantRoleService>();
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();

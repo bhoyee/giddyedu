@@ -5,6 +5,7 @@ using GiddyEdu.Modules.StudentLifecycle.Domain;
 using GiddyEdu.Modules.Identity.Domain;
 using GiddyEdu.Modules.Platform.Domain;
 using GiddyEdu.Infrastructure.StudentLifecycle;
+using GiddyEdu.Infrastructure.Authorization;
 
 namespace GiddyEdu.UnitTests;
 
@@ -145,5 +146,22 @@ public sealed class PhaseOneDomainTests
         Assert.Equal(ImportOperationStatus.Completed, operation.Status);
         Assert.Equal(12, operation.ImportedRows);
         Assert.Equal(0, operation.RejectedRows);
+    }
+
+    [Fact]
+    public void PortalAudienceResolver_UsesResourceLinksAndPermissionsWithoutGrantingAuthorization()
+    {
+        var presentation = PortalAudienceResolver.Resolve(["Custom Educator"], [GiddyEdu.Modules.Identity.Permissions.StudentsView], isStaff: true, isTeacher: true, isGuardian: false);
+        Assert.Equal(["Teacher", "Staff"], presentation.Audiences);
+        Assert.Equal("Teacher", presentation.DefaultAudience);
+        Assert.DoesNotContain("SchoolAdmin", presentation.Audiences);
+    }
+
+    [Fact]
+    public void PortalAudienceResolver_SupportsFamilyAndFinanceExperienceLabels()
+    {
+        var presentation = PortalAudienceResolver.Resolve(["Parent", "Bursar"], [], isStaff: false, isTeacher: false, isGuardian: true);
+        Assert.Contains("Parent", presentation.Audiences);
+        Assert.Contains("Accountant", presentation.Audiences);
     }
 }

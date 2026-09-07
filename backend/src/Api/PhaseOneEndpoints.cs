@@ -141,12 +141,13 @@ public static class PhaseOneEndpoints
         finally { tenantContext.Clear(); }
     }
 
-    private static async Task<IResult> GetAccessContextAsync(ClaimsPrincipal principal, ITenantContext tenant, IPermissionService permissions, IEntitlementService entitlements, CancellationToken ct)
+    private static async Task<IResult> GetAccessContextAsync(ClaimsPrincipal principal, ITenantContext tenant, IPermissionService permissions, IAccessProfileService profiles, IEntitlementService entitlements, CancellationToken ct)
     {
         var actor = UserId(principal); var effectivePermissions = await permissions.GetEffectivePermissionsAsync(actor, ct);
+        var presentation = await profiles.GetPresentationAsync(actor, effectivePermissions, ct);
         var effectiveEntitlements = new Dictionary<string, EffectiveEntitlement>();
         foreach (var featureKey in FeatureKeys.PhaseOne) effectiveEntitlements[featureKey] = await entitlements.GetAsync(featureKey, tenant.CampusId, ct);
-        return Results.Ok(new { userId = actor, tenantId = tenant.TenantId, campusId = tenant.CampusId, permissions = effectivePermissions, entitlements = effectiveEntitlements });
+        return Results.Ok(new { userId = actor, tenantId = tenant.TenantId, campusId = tenant.CampusId, roles = presentation.Roles, audiences = presentation.Audiences, defaultAudience = presentation.DefaultAudience, permissions = effectivePermissions, entitlements = effectiveEntitlements });
     }
     private static async Task<IResult> CreateAccountInvitationAsync(CreateAccountInvitationInput input, ClaimsPrincipal principal, IAccountInvitationService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); var invitation = await service.CreateAsync(actor, input, ct); await audit.WriteAsync(actor, "AccountInvitation.Create", "AccountInvitation", invitation.Id.ToString(), "Succeeded", JsonSerializer.Serialize(new { invitation.TargetType, invitation.TargetId }), ct); return Results.Accepted($"/api/v1/account-invitations/{invitation.Id}", invitation); }
