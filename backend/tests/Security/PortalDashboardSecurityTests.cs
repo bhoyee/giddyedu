@@ -3,6 +3,9 @@ using GiddyEdu.Infrastructure.Authorization;
 using GiddyEdu.Infrastructure.Persistence;
 using GiddyEdu.Infrastructure.Subscriptions;
 using GiddyEdu.Modules.Identity;
+using GiddyEdu.Modules.Academics.Domain;
+using GiddyEdu.Modules.Hr.Domain;
+using GiddyEdu.Modules.StudentLifecycle.Domain;
 using GiddyEdu.Modules.Tenancy.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -38,6 +41,41 @@ public sealed class PortalDashboardSecurityTests
         var service = new PortalDashboardService(db, new StubPermissions([]), new StubProfile(["Parent"]), new EnabledEntitlements());
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.GetAsync(Guid.NewGuid(), "SchoolAdmin"));
+    }
+
+    [Fact]
+    public async Task TeachingClasses_IncludeOnlyAssignmentsAndLearnersLinkedToTheActor()
+    {
+        var context = new TenantContextAccessor(); var tenantId = Guid.NewGuid(); context.Set(tenantId, null);
+        var options = new DbContextOptionsBuilder<GiddyEduDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        await using var db = new GiddyEduDbContext(options, context);
+        var actor = Guid.NewGuid(); var campusId = Guid.NewGuid(); var ownStaffId = Guid.NewGuid(); var otherStaffId = Guid.NewGuid();
+        var ownClassId = Guid.NewGuid(); var otherClassId = Guid.NewGuid(); var now = DateTimeOffset.UtcNow;
+        var ownStaff = new StaffProfile(ownStaffId, tenantId, "T-1", "Linked", "Teacher", StaffCategory.Teaching, campusId, null, null, null, null, new(2026, 9, 1), now);
+        ownStaff.LinkUser(actor, now);
+        db.StaffProfiles.AddRange(ownStaff, new StaffProfile(otherStaffId, tenantId, "T-2", "Other", "Teacher", StaffCategory.Teaching, campusId, null, null, null, null, new(2026, 9, 1), now));
+        db.ClassSections.AddRange(
+            new ClassSection(ownClassId, tenantId, campusId, Guid.NewGuid(), Guid.NewGuid(), "JSS 1 Gold", "JSS1-G", 30, now),
+            new ClassSection(otherClassId, tenantId, campusId, Guid.NewGuid(), Guid.NewGuid(), "JSS 2 Gold", "JSS2-G", 30, now));
+        db.TeachingAssignments.AddRange(
+            new TeachingAssignment(Guid.NewGuid(), tenantId, ownStaffId, ownClassId, null, TeachingAssignmentRole.ClassTeacher, now),
+            new TeachingAssignment(Guid.NewGuid(), tenantId, otherStaffId, otherClassId, null, TeachingAssignmentRole.ClassTeacher, now));
+        var ownStudentId = Guid.NewGuid(); var otherStudentId = Guid.NewGuid();
+        db.Students.AddRange(
+            new Student(ownStudentId, tenantId, "S-1", "Own", "Learner", new(2015, 1, 1), null, now),
+            new Student(otherStudentId, tenantId, "S-2", "Other", "Learner", new(2015, 1, 1), null, now));
+        db.Enrollments.AddRange(
+            new Enrollment(Guid.NewGuid(), tenantId, ownStudentId, Guid.NewGuid(), ownClassId, new(2026, 9, 1), now),
+            new Enrollment(Guid.NewGuid(), tenantId, otherStudentId, Guid.NewGuid(), otherClassId, new(2026, 9, 1), now));
+        await db.SaveChangesAsync();
+        var effectivePermissions = new[] { Permissions.AcademicsView, Permissions.StudentsView };
+        var service = new PortalDashboardService(db, new StubPermissions(effectivePermissions), new StubProfile(["Teacher"]), new EnabledEntitlements());
+
+        var result = await service.GetTeachingClassesAsync(actor);
+
+        var assignedClass = Assert.Single(result);
+        Assert.Equal(ownClassId, assignedClass.ClassSectionId);
+        Assert.Equal(1, assignedClass.StudentCount);
     }
 
     private sealed class StubPermissions(IReadOnlyCollection<string> values) : IPermissionService

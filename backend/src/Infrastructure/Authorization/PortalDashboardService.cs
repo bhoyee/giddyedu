@@ -9,10 +9,12 @@ namespace GiddyEdu.Infrastructure.Authorization;
 
 public sealed record PortalDashboardMetric(string Key, string Label, long Value, string? Href);
 public sealed record PortalDashboard(string Audience, IReadOnlyList<PortalDashboardMetric> Metrics, string Guidance);
+public sealed record TeachingClassSummary(Guid AssignmentId, Guid ClassSectionId, string ClassName, string ClassCode, string Responsibility, Guid? SubjectId, string? SubjectName, long? StudentCount);
 
 public interface IPortalDashboardService
 {
     Task<PortalDashboard> GetAsync(Guid userId, string audience, CancellationToken ct = default);
+    Task<IReadOnlyList<TeachingClassSummary>> GetTeachingClassesAsync(Guid userId, CancellationToken ct = default);
 }
 
 public sealed class PortalDashboardService(
@@ -39,6 +41,34 @@ public sealed class PortalDashboardService(
             "Accountant" => await AccountantDashboardAsync(effectivePermissions, ct),
             _ => throw new UnauthorizedAccessException("The requested workspace is not supported.")
         };
+    }
+
+    public async Task<IReadOnlyList<TeachingClassSummary>> GetTeachingClassesAsync(Guid userId, CancellationToken ct = default)
+    {
+        var effectivePermissions = await permissions.GetEffectivePermissionsAsync(userId, ct);
+        var presentation = await profiles.GetPresentationAsync(userId, effectivePermissions, ct);
+        if (!presentation.Audiences.Contains("Teacher") || !await CanUseAsync(effectivePermissions, Permissions.AcademicsView, FeatureKeys.AcademicStructure, ct))
+            throw new UnauthorizedAccessException("The teacher workspace is not available for this account.");
+
+        var staffId = await db.StaffProfiles.Where(x => x.UserId == userId).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+        if (!staffId.HasValue) return [];
+        var mayViewStudents = await CanUseAsync(effectivePermissions, Permissions.StudentsView, FeatureKeys.StudentInformation, ct);
+        var rows = await (from assignment in db.TeachingAssignments.AsNoTracking()
+                          join section in db.ClassSections.AsNoTracking() on assignment.ClassSectionId equals section.Id
+                          where assignment.StaffId == staffId.Value
+                          orderby section.Name, assignment.Role
+                          select new { assignment.Id, assignment.ClassSectionId, section.Name, section.Code, assignment.Role, assignment.SubjectId }).ToListAsync(ct);
+        var subjectIds = rows.Where(x => x.SubjectId.HasValue).Select(x => x.SubjectId!.Value).Distinct().ToArray();
+        var subjectNames = await db.Subjects.AsNoTracking().Where(x => subjectIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.Name, ct);
+        var classIds = rows.Select(x => x.ClassSectionId).Distinct().ToArray();
+        var studentCounts = mayViewStudents
+            ? await db.Enrollments.AsNoTracking().Where(x => classIds.Contains(x.ClassSectionId) && x.Status == EnrollmentStatus.Active)
+                .GroupBy(x => x.ClassSectionId).Select(x => new { ClassSectionId = x.Key, Count = x.LongCount() })
+                .ToDictionaryAsync(x => x.ClassSectionId, x => x.Count, ct)
+            : [];
+        return rows.Select(x => new TeachingClassSummary(x.Id, x.ClassSectionId, x.Name, x.Code, x.Role.ToString(), x.SubjectId,
+            x.SubjectId.HasValue && subjectNames.TryGetValue(x.SubjectId.Value, out var subjectName) ? subjectName : null,
+            mayViewStudents ? studentCounts.GetValueOrDefault(x.ClassSectionId) : null)).ToList();
     }
 
     private async Task<PortalDashboard> AdministrativeDashboardAsync(string audience, IReadOnlyCollection<string> permissions, CancellationToken ct)

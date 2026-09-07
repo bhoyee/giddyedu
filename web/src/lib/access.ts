@@ -8,6 +8,7 @@ export const portalItems: PortalItem[] = [
   { href: "/portal/subscription", label: "Subscription", description: "Plans and enabled features", permission: "TenantSettings.Manage", audiences: ["SuperAdmin", "SchoolAdmin", "Accountant"] },
   { href: "/portal/school", label: "School", description: "Profile and campuses", permission: "Schools.View", feature: "school-administration", audiences: ["SuperAdmin", "SchoolAdmin", "Teacher", "Staff"] },
   { href: "/portal/academics", label: "Academics", description: "Years, terms, classes and subjects", permission: "Academics.View", feature: "academic-structure", audiences: ["SchoolAdmin", "Teacher", "Staff", "Student"] },
+  { href: "/portal/teaching", label: "My teaching", description: "Assigned classes, subjects and learner totals", permission: "Academics.View", feature: "academic-structure", audiences: ["Teacher"] },
   { href: "/portal/staff", label: "Staff", description: "People and positions", permission: "Staff.View", feature: "staff-management", audiences: ["SuperAdmin", "SchoolAdmin", "Teacher", "Staff"] },
   { href: "/portal/admissions", label: "Admissions", description: "Applicants and offers", permission: "Admissions.View", feature: "admissions", audiences: ["SchoolAdmin", "Staff"] },
   { href: "/portal/students", label: "Students", description: "Learners and enrolments", permission: "Students.View", feature: "student-information", audiences: ["SchoolAdmin", "Teacher", "Staff", "Parent", "Student"] },
