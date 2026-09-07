@@ -47,6 +47,7 @@ public static class DependencyInjection
         services.AddScoped<IDomainEventDispatcher, InProcessDomainEventDispatcher>();
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IAccessProfileService, AccessProfileService>();
+        services.AddScoped<IPortalDashboardService, PortalDashboardService>();
         services.AddScoped<IFeatureAccessGuard, FeatureAccessGuard>();
         services.AddScoped<TenantRoleService>();
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();

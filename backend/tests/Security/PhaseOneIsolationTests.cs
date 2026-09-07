@@ -89,6 +89,23 @@ public sealed class PhaseOneIsolationTests
     }
 
     [Fact]
+    public async Task StaffView_IsRestrictedToTheActorsLinkedProfileWithoutManagePermission()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
+        var actor = Guid.NewGuid(); var ownId = Guid.NewGuid(); var otherId = Guid.NewGuid();
+        var own = new StaffProfile(ownId, fixture.TenantA, "OWN-1", "Own", "Staff", StaffCategory.Teaching, fixture.CampusA, null, null, null, null, new(2026, 9, 1), fixture.Clock.UtcNow);
+        own.LinkUser(actor, fixture.Clock.UtcNow);
+        fixture.Db.StaffProfiles.AddRange(own, new StaffProfile(otherId, fixture.TenantA, "OTHER-1", "Other", "Staff", StaffCategory.Administrative, fixture.CampusA, null, null, null, null, new(2026, 9, 1), fixture.Clock.UtcNow));
+        await fixture.Db.SaveChangesAsync();
+
+        var service = fixture.Staff(new ViewOnlyPermissions());
+        var result = await service.ListAsync(actor, 1, 25, null, null);
+
+        Assert.Equal(ownId, Assert.Single(result.Items).Id);
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.GetAsync(actor, otherId));
+    }
+
+    [Fact]
     public async Task Applicants_AreTenantIsolated()
     {
         await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
@@ -146,7 +163,7 @@ public sealed class PhaseOneIsolationTests
         public GiddyEduDbContext Db { get; } public TenantContextAccessor Context { get; } public Guid TenantA { get; } public Guid TenantB { get; } public Guid CampusA { get; } public SystemClock Clock { get; }
         public AcademicStructureService Academics() => new(Db, Context, new AllowedAccess(), Clock);
         public SchoolAdministrationService Schools() => new(Db, Context, new AllowedAccess(), Clock);
-        public StaffService Staff() => new(Db, Context, new AllowedAccess(), Clock);
+        public StaffService Staff(IPermissionService? permissions = null) => new(Db, Context, new AllowedAccess(), permissions ?? new AllowedPermissions(), Clock);
         public StudentLifecycleService Students(IPermissionService? permissions = null) => new(Db, Context, new AllowedAccess(), permissions ?? new AllowedPermissions(), Clock);
         public ValueTask DisposeAsync() => Db.DisposeAsync();
         public static async Task<Fixture> CreateAsync()

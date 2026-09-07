@@ -40,7 +40,7 @@ public interface IStaffService
     Task DeleteTeachingAssignmentAsync(Guid actor, Guid assignmentId, CancellationToken ct = default);
 }
 
-public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IFeatureAccessGuard access, IClock clock) : IStaffService
+public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IFeatureAccessGuard access, IPermissionService permissions, IClock clock) : IStaffService
 {
     public async Task<IReadOnlyList<PositionInfo>> ListPositionsAsync(Guid actor, CancellationToken ct = default)
     { await DemandAsync(actor, Permissions.StaffView, ct); RequireTenant(); return await db.Positions.AsNoTracking().OrderBy(x => x.Name).Select(x => new PositionInfo(x.Id, x.Name, x.Code, x.IsActive)).ToListAsync(ct); }
@@ -52,13 +52,14 @@ public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IF
     {
         await DemandAsync(actor, Permissions.StaffView, ct); RequireTenant(); page = Math.Max(1, page); pageSize = Math.Clamp(pageSize, 1, 100);
         var query = db.StaffProfiles.AsNoTracking().Where(x => !status.HasValue || x.Status == status);
+        if (!await permissions.HasPermissionAsync(actor, Permissions.StaffManage, ct)) query = query.Where(x => x.UserId == actor);
         if (!string.IsNullOrWhiteSpace(search)) { var term = search.Trim(); query = query.Where(x => x.StaffNumber.Contains(term) || x.FirstName.Contains(term) || x.LastName.Contains(term)); }
         var total = await query.LongCountAsync(ct); var items = await query.OrderBy(x => x.LastName).ThenBy(x => x.FirstName).Skip((page - 1) * pageSize).Take(pageSize).Select(Project()).ToListAsync(ct);
         return new(items, page, pageSize, total);
     }
 
     public async Task<StaffInfo> GetAsync(Guid actor, Guid id, CancellationToken ct = default)
-    { await DemandAsync(actor, Permissions.StaffView, ct); RequireTenant(); return await db.StaffProfiles.AsNoTracking().Where(x => x.Id == id).Select(Project()).SingleOrDefaultAsync(ct) ?? throw new KeyNotFoundException("Staff member was not found."); }
+    { await DemandAsync(actor, Permissions.StaffView, ct); RequireTenant(); var query = db.StaffProfiles.AsNoTracking().Where(x => x.Id == id); if (!await permissions.HasPermissionAsync(actor, Permissions.StaffManage, ct)) query = query.Where(x => x.UserId == actor); return await query.Select(Project()).SingleOrDefaultAsync(ct) ?? throw new KeyNotFoundException("Staff member was not found."); }
 
     public async Task<Guid> CreateAsync(Guid actor, StaffInput input, CancellationToken ct = default)
     { await ManageAsync(actor, ct); await ValidateReferencesAsync(input, ct); var id = Guid.NewGuid(); db.StaffProfiles.Add(new StaffProfile(id, RequireTenant(), input.StaffNumber, input.FirstName, input.LastName, input.Category, input.CampusId, input.DepartmentId, input.PositionId, input.WorkEmail, input.Phone, input.HireDate, clock.UtcNow)); await db.SaveChangesAsync(ct); return id; }
@@ -77,13 +78,13 @@ public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IF
     { await ManageAsync(actor, ct); if (!await db.TenantMemberships.AnyAsync(x => x.UserId == input.UserId && x.IsActive, ct)) throw new InvalidOperationException("User must have an active membership in the current tenant."); var staff = await FindAsync(id, ct); staff.LinkUser(input.UserId, clock.UtcNow); await db.SaveChangesAsync(ct); }
 
     public async Task<StaffSensitiveInfo?> GetSensitiveAsync(Guid actor, Guid id, CancellationToken ct = default)
-    { await DemandAsync(actor, Permissions.StaffSensitiveView, ct); await EnsureStaffAsync(id, ct); return await db.StaffSensitiveRecords.AsNoTracking().Where(x => x.StaffId == id).Select(x => new StaffSensitiveInfo(x.Address, x.NextOfKinName, x.NextOfKinPhone, x.Notes, x.UpdatedAtUtc)).SingleOrDefaultAsync(ct); }
+    { await DemandAsync(actor, Permissions.StaffSensitiveView, ct); await EnsureStaffAsync(actor, id, ct); return await db.StaffSensitiveRecords.AsNoTracking().Where(x => x.StaffId == id).Select(x => new StaffSensitiveInfo(x.Address, x.NextOfKinName, x.NextOfKinPhone, x.Notes, x.UpdatedAtUtc)).SingleOrDefaultAsync(ct); }
 
     public async Task UpsertSensitiveAsync(Guid actor, Guid id, StaffSensitiveInput input, CancellationToken ct = default)
-    { await ManageAsync(actor, ct); await EnsureStaffAsync(id, ct); var record = await db.StaffSensitiveRecords.SingleOrDefaultAsync(x => x.StaffId == id, ct); if (record is null) db.StaffSensitiveRecords.Add(new StaffSensitiveRecord(RequireTenant(), id, input.Address, input.NextOfKinName, input.NextOfKinPhone, input.Notes, clock.UtcNow)); else record.Update(input.Address, input.NextOfKinName, input.NextOfKinPhone, input.Notes, clock.UtcNow); await db.SaveChangesAsync(ct); }
+    { await ManageAsync(actor, ct); await EnsureStaffAsync(actor, id, ct); var record = await db.StaffSensitiveRecords.SingleOrDefaultAsync(x => x.StaffId == id, ct); if (record is null) db.StaffSensitiveRecords.Add(new StaffSensitiveRecord(RequireTenant(), id, input.Address, input.NextOfKinName, input.NextOfKinPhone, input.Notes, clock.UtcNow)); else record.Update(input.Address, input.NextOfKinName, input.NextOfKinPhone, input.Notes, clock.UtcNow); await db.SaveChangesAsync(ct); }
 
     public async Task<IReadOnlyList<TeachingAssignmentInfo>> ListTeachingAssignmentsAsync(Guid actor, Guid? classSectionId, CancellationToken ct = default)
-    { await DemandAsync(actor, Permissions.StaffView, ct); RequireTenant(); return await db.TeachingAssignments.AsNoTracking().Where(x => !classSectionId.HasValue || x.ClassSectionId == classSectionId).OrderBy(x => x.ClassSectionId).ThenBy(x => x.Role).Select(x => new TeachingAssignmentInfo(x.Id, x.StaffId, x.ClassSectionId, x.SubjectId, x.Role)).ToListAsync(ct); }
+    { await DemandAsync(actor, Permissions.StaffView, ct); RequireTenant(); var query = db.TeachingAssignments.AsNoTracking().Where(x => !classSectionId.HasValue || x.ClassSectionId == classSectionId); if (!await permissions.HasPermissionAsync(actor, Permissions.StaffManage, ct)) query = query.Where(x => db.StaffProfiles.Any(staff => staff.Id == x.StaffId && staff.UserId == actor)); return await query.OrderBy(x => x.ClassSectionId).ThenBy(x => x.Role).Select(x => new TeachingAssignmentInfo(x.Id, x.StaffId, x.ClassSectionId, x.SubjectId, x.Role)).ToListAsync(ct); }
 
     public async Task<Guid> CreateTeachingAssignmentAsync(Guid actor, TeachingAssignmentInput input, CancellationToken ct = default)
     {
@@ -104,7 +105,7 @@ public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IF
         if (input.PositionId.HasValue && !await db.Positions.AnyAsync(x => x.Id == input.PositionId && x.IsActive, ct)) throw new InvalidOperationException("Position must belong to the current tenant and be active.");
     }
     private async Task<StaffProfile> FindAsync(Guid id, CancellationToken ct) => await db.StaffProfiles.SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw new KeyNotFoundException("Staff member was not found.");
-    private async Task EnsureStaffAsync(Guid id, CancellationToken ct) { RequireTenant(); if (!await db.StaffProfiles.AnyAsync(x => x.Id == id, ct)) throw new KeyNotFoundException("Staff member was not found."); }
+    private async Task EnsureStaffAsync(Guid actor, Guid id, CancellationToken ct) { RequireTenant(); var query = db.StaffProfiles.Where(x => x.Id == id); if (!await permissions.HasPermissionAsync(actor, Permissions.StaffManage, ct)) query = query.Where(x => x.UserId == actor); if (!await query.AnyAsync(ct)) throw new KeyNotFoundException("Staff member was not found."); }
     private Task ManageAsync(Guid actor, CancellationToken ct) => DemandAsync(actor, Permissions.StaffManage, ct);
     private Task DemandAsync(Guid actor, string permission, CancellationToken ct) => access.DemandAsync(actor, permission, FeatureKeys.StaffManagement, ct);
     private Guid RequireTenant() => tenant.TenantId ?? throw new InvalidOperationException("Tenant context is required.");

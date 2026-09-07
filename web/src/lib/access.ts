@@ -1,6 +1,7 @@
 export type Entitlement = { enabled: boolean; limit: number | null };
 export type PortalAudience = "SuperAdmin" | "SchoolAdmin" | "Teacher" | "Staff" | "Parent" | "Student" | "Accountant";
 export type AccessContext = { userId: string; tenantId: string; campusId: string | null; roles: string[]; audiences: PortalAudience[]; defaultAudience: PortalAudience; permissions: string[]; entitlements: Record<string, Entitlement> };
+export type PortalDashboard = { audience: PortalAudience; metrics: { key: string; label: string; value: number; href: string | null }[]; guidance: string };
 export type PortalItem = { href: string; label: string; description: string; permission: string; feature?: string; audiences: PortalAudience[] };
 
 export const portalItems: PortalItem[] = [
