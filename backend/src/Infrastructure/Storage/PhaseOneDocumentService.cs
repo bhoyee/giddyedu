@@ -19,7 +19,7 @@ public interface IPhaseOneDocumentService
     Task DeleteAsync(Guid actor, Guid fileId, CancellationToken ct = default);
 }
 
-public sealed class PhaseOneDocumentService(GiddyEduDbContext db, IFeatureAccessGuard access, IFileService files) : IPhaseOneDocumentService
+public sealed class PhaseOneDocumentService(GiddyEduDbContext db, IFeatureAccessGuard access, IPermissionService permissions, IFileService files) : IPhaseOneDocumentService
 {
     private const long MaximumDocumentBytes = 10 * 1024 * 1024;
     private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase) { "application/pdf", "image/jpeg", "image/png" };
@@ -61,7 +61,29 @@ public sealed class PhaseOneDocumentService(GiddyEduDbContext db, IFeatureAccess
             _ => (manage ? Permissions.StaffManage : Permissions.StaffSensitiveView, FeatureKeys.StaffManagement)
         };
         await access.DemandAsync(actor, permission, feature, ct);
-        var exists = target switch { "Applicant" => await db.Applicants.AnyAsync(x => x.Id == entityId, ct), "Student" => await db.Students.AnyAsync(x => x.Id == entityId, ct), _ => await db.StaffProfiles.AnyAsync(x => x.Id == entityId, ct) };
+        var exists = target switch
+        {
+            "Applicant" => await db.Applicants.AnyAsync(x => x.Id == entityId, ct),
+            "Student" => await StudentIsInScopeAsync(actor, entityId, ct),
+            _ => await StaffIsInScopeAsync(actor, entityId, ct)
+        };
         if (!exists) throw new KeyNotFoundException("Document target was not found."); return target;
     }
+
+    private async Task<bool> StudentIsInScopeAsync(Guid actor, Guid studentId, CancellationToken ct)
+    {
+        if (await permissions.HasPermissionAsync(actor, Permissions.StudentsManage, ct)) return await db.Students.AnyAsync(x => x.Id == studentId, ct);
+        if (await db.Students.AnyAsync(x => x.Id == studentId && x.UserId == actor, ct)) return true;
+        if (await (from link in db.StudentGuardians join guardian in db.Guardians on link.GuardianId equals guardian.Id where link.StudentId == studentId && guardian.UserId == actor select link.StudentId).AnyAsync(ct)) return true;
+        return await (from enrollment in db.Enrollments
+                      join assignment in db.TeachingAssignments on enrollment.ClassSectionId equals assignment.ClassSectionId
+                      join staff in db.StaffProfiles on assignment.StaffId equals staff.Id
+                      where enrollment.StudentId == studentId && enrollment.Status == GiddyEdu.Modules.StudentLifecycle.Domain.EnrollmentStatus.Active && staff.UserId == actor
+                      select enrollment.StudentId).AnyAsync(ct);
+    }
+
+    private async Task<bool> StaffIsInScopeAsync(Guid actor, Guid staffId, CancellationToken ct) =>
+        await permissions.HasPermissionAsync(actor, Permissions.StaffManage, ct)
+            ? await db.StaffProfiles.AnyAsync(x => x.Id == staffId, ct)
+            : await db.StaffProfiles.AnyAsync(x => x.Id == staffId && x.UserId == actor, ct);
 }

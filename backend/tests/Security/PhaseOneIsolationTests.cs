@@ -9,6 +9,7 @@ using GiddyEdu.Modules.Academics.Domain;
 using GiddyEdu.Modules.Tenancy.Domain;
 using GiddyEdu.Modules.Hr.Domain;
 using GiddyEdu.Infrastructure.StudentLifecycle;
+using GiddyEdu.Infrastructure.Storage;
 using GiddyEdu.Modules.StudentLifecycle.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -156,6 +157,23 @@ public sealed class PhaseOneIsolationTests
         await Assert.ThrowsAsync<KeyNotFoundException>(() => service.GetStudentAsync(userId, otherId));
     }
 
+    [Fact]
+    public async Task SensitiveStudentDataAndDocuments_RespectLinkedResourceScope()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
+        var actor = Guid.NewGuid(); var ownId = Guid.NewGuid(); var otherId = Guid.NewGuid();
+        var own = new Student(ownId, fixture.TenantA, "OWN-S", "Own", "Student", new(2015, 1, 1), null, fixture.Clock.UtcNow); own.LinkUser(actor);
+        fixture.Db.Students.AddRange(own, new Student(otherId, fixture.TenantA, "OTHER-S", "Other", "Student", new(2015, 1, 1), null, fixture.Clock.UtcNow));
+        fixture.Db.StudentSensitiveRecords.AddRange(new StudentSensitiveRecord(fixture.TenantA, ownId, "Own address", null, null, null, null, fixture.Clock.UtcNow), new StudentSensitiveRecord(fixture.TenantA, otherId, "Other address", null, null, null, null, fixture.Clock.UtcNow)); await fixture.Db.SaveChangesAsync();
+        var permissions = new ViewOnlyPermissions(); var students = fixture.Students(permissions);
+        var documents = new PhaseOneDocumentService(fixture.Db, new AllowedAccess(), permissions, new UnusedFileService());
+
+        Assert.Equal("Own address", (await students.GetStudentSensitiveAsync(actor, ownId))?.Address);
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => students.GetStudentSensitiveAsync(actor, otherId));
+        Assert.Empty(await documents.ListAsync(actor, "Student", ownId));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => documents.ListAsync(actor, "Student", otherId));
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         private Fixture(GiddyEduDbContext db, TenantContextAccessor context, Guid tenantA, Guid tenantB, Guid campusA, SystemClock clock)
@@ -189,5 +207,12 @@ public sealed class PhaseOneIsolationTests
     {
         public Task<bool> HasPermissionAsync(Guid userId, string permission, CancellationToken cancellationToken = default) => Task.FromResult(permission.EndsWith(".View", StringComparison.Ordinal));
         public Task<IReadOnlyCollection<string>> GetEffectivePermissionsAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyCollection<string>>([]);
+    }
+    private sealed class UnusedFileService : IFileService
+    {
+        public Task<FileUpload> BeginUploadAsync(string fileName, string contentType, long sizeBytes, string category, string entityType, Guid entityId, Guid userId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task CompleteUploadAsync(Guid fileId, string checksum, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<string> CreateDownloadUrlAsync(Guid fileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task DeleteAsync(Guid fileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }
