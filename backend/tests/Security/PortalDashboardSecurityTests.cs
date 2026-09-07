@@ -9,6 +9,7 @@ using GiddyEdu.Modules.StudentLifecycle.Domain;
 using GiddyEdu.Modules.Subscriptions.Domain;
 using GiddyEdu.Modules.Tenancy.Domain;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity;
 
 namespace GiddyEdu.SecurityTests;
 
@@ -173,6 +174,22 @@ public sealed class PortalDashboardSecurityTests
         var result = await service.GetCommercialOverviewAsync(Guid.NewGuid());
 
         Assert.Equal("plan-a", result.PlanCode);
+    }
+
+    [Fact]
+    public async Task PlatformAdministration_RequiresGlobalIdentityRoleAndNotTenantRoleNames()
+    {
+        var context = new TenantContextAccessor(); context.Set(Guid.NewGuid(), null);
+        var options = new DbContextOptionsBuilder<GiddyEduDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        await using var db = new GiddyEduDbContext(options, context); var actor = Guid.NewGuid();
+        db.Tenants.AddRange(new Tenant(Guid.NewGuid(), "A", "platform-a", DateTimeOffset.UtcNow), new Tenant(Guid.NewGuid(), "B", "platform-b", DateTimeOffset.UtcNow)); await db.SaveChangesAsync();
+        var service = new PlatformAdministrationService(db);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ListTenantsAsync(actor));
+        var roleId = Guid.NewGuid(); db.Roles.Add(new IdentityRole<Guid>(GlobalRoles.PlatformAdministrator) { Id = roleId, NormalizedName = GlobalRoles.PlatformAdministrator.ToUpperInvariant() }); db.UserRoles.Add(new IdentityUserRole<Guid> { UserId = actor, RoleId = roleId }); await db.SaveChangesAsync();
+
+        var tenants = await service.ListTenantsAsync(actor);
+
+        Assert.Equal(2, tenants.Count);
     }
 
     private sealed class StubPermissions(IReadOnlyCollection<string> values) : IPermissionService

@@ -5,6 +5,7 @@ export type PortalDashboard = { audience: PortalAudience; metrics: { key: string
 export type PortalItem = { href: string; label: string; description: string; permission: string; feature?: string; audiences: PortalAudience[] };
 
 export const portalItems: PortalItem[] = [
+  { href: "/portal/platform", label: "Tenant administration", description: "Platform-wide schools, memberships and subscriptions", permission: "Platform.Tenants.View", audiences: ["SuperAdmin"] },
   { href: "/portal/subscription", label: "Subscription", description: "Plans and enabled features", permission: "TenantSettings.Manage", audiences: ["SuperAdmin", "SchoolAdmin", "Accountant"] },
   { href: "/portal/operations", label: "Operational readiness", description: "Track the Phase 1 school setup path", permission: "TenantSettings.Manage", audiences: ["SchoolAdmin"] },
   { href: "/portal/commercial", label: "Commercial overview", description: "Current plan, campuses and enabled Phase 1 capabilities", permission: "Schools.View", audiences: ["Accountant"] },

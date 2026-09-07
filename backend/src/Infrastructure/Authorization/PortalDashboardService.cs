@@ -40,7 +40,10 @@ public sealed class PortalDashboardService(
     {
         var effectivePermissions = await permissions.GetEffectivePermissionsAsync(userId, ct);
         var presentation = await profiles.GetPresentationAsync(userId, effectivePermissions, ct);
-        var canonicalAudience = presentation.Audiences.SingleOrDefault(x => string.Equals(x, audience, StringComparison.OrdinalIgnoreCase));
+        var isPlatformAdministrator = await (from assignment in db.UserRoles join role in db.Roles on assignment.RoleId equals role.Id where assignment.UserId == userId && role.Name == GlobalRoles.PlatformAdministrator select role.Id).AnyAsync(ct);
+        var canonicalAudience = string.Equals(audience, "SuperAdmin", StringComparison.OrdinalIgnoreCase) && isPlatformAdministrator
+            ? "SuperAdmin"
+            : presentation.Audiences.SingleOrDefault(x => string.Equals(x, audience, StringComparison.OrdinalIgnoreCase));
         if (canonicalAudience is null) throw new UnauthorizedAccessException("The requested workspace is not available for this account.");
 
         return canonicalAudience switch

@@ -34,7 +34,6 @@ public static class PortalAudienceResolver
     {
         var names = roles.Select(x => x.Trim().ToLowerInvariant()).ToArray();
         var audiences = new List<string>();
-        if (names.Any(x => x.Contains("super admin") || x.Contains("platform administrator"))) audiences.Add("SuperAdmin");
         if (permissions.Contains(Permissions.TenantSettingsManage) || permissions.Contains(Permissions.RolesManage)) audiences.Add("SchoolAdmin");
         if (isTeacher || names.Any(x => x.Contains("teacher"))) audiences.Add("Teacher");
         if (isStaff || names.Any(x => x is "staff" or "employee")) audiences.Add("Staff");

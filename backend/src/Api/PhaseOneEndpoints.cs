@@ -6,6 +6,7 @@ using GiddyEdu.Infrastructure.Platform;
 using GiddyEdu.Infrastructure.Schools;
 using GiddyEdu.Infrastructure.Hr;
 using GiddyEdu.Infrastructure.Identity;
+using GiddyEdu.Modules.Identity;
 using GiddyEdu.Modules.Hr.Domain;
 using GiddyEdu.Infrastructure.StudentLifecycle;
 using GiddyEdu.Modules.StudentLifecycle.Domain;
@@ -27,6 +28,7 @@ public static class PhaseOneEndpoints
         endpoints.MapGet("/api/v1/plans", async (ISubscriptionManagementService service, CancellationToken ct) => Results.Ok(await service.ListPlansAsync(ct))).AllowAnonymous();
         endpoints.MapPost("/api/v1/public/admissions/{tenantSlug}/applications", SubmitPublicApplicationAsync).AllowAnonymous().RequireRateLimiting("auth");
         endpoints.MapGet("/api/v1/access/me", GetAccessContextAsync);
+        endpoints.MapGet("/api/v1/platform/admin/tenants", ListPlatformTenantsAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator));
         endpoints.MapGet("/api/v1/portal/dashboard", GetPortalDashboardAsync);
         endpoints.MapGet("/api/v1/portal/teaching/classes", GetTeachingClassesAsync);
         endpoints.MapGet("/api/v1/portal/family/students", GetFamilyStudentsAsync);
@@ -154,8 +156,12 @@ public static class PhaseOneEndpoints
         var presentation = await profiles.GetPresentationAsync(actor, effectivePermissions, ct);
         var effectiveEntitlements = new Dictionary<string, EffectiveEntitlement>();
         foreach (var featureKey in FeatureKeys.PhaseOne) effectiveEntitlements[featureKey] = await entitlements.GetAsync(featureKey, tenant.CampusId, ct);
-        return Results.Ok(new { userId = actor, tenantId = tenant.TenantId, campusId = tenant.CampusId, roles = presentation.Roles, audiences = presentation.Audiences, defaultAudience = presentation.DefaultAudience, permissions = effectivePermissions, entitlements = effectiveEntitlements });
+        var platformAdmin = principal.IsInRole(GlobalRoles.PlatformAdministrator);
+        var audiences = platformAdmin ? new[] { "SuperAdmin" }.Concat(presentation.Audiences).Distinct().ToArray() : presentation.Audiences;
+        var permissionList = platformAdmin ? effectivePermissions.Append(PlatformPermissions.TenantsView).Distinct().ToArray() : effectivePermissions;
+        return Results.Ok(new { userId = actor, tenantId = tenant.TenantId, campusId = tenant.CampusId, roles = presentation.Roles, audiences, defaultAudience = platformAdmin ? "SuperAdmin" : presentation.DefaultAudience, permissions = permissionList, entitlements = effectiveEntitlements });
     }
+    private static async Task<IResult> ListPlatformTenantsAsync(ClaimsPrincipal principal, IPlatformAdministrationService service, CancellationToken ct) => Results.Ok(await service.ListTenantsAsync(UserId(principal), ct));
     private static async Task<IResult> GetPortalDashboardAsync(string audience, ClaimsPrincipal principal, IPortalDashboardService service, CancellationToken ct) =>
         Results.Ok(await service.GetAsync(UserId(principal), audience, ct));
     private static async Task<IResult> GetTeachingClassesAsync(ClaimsPrincipal principal, IPortalDashboardService service, CancellationToken ct) =>

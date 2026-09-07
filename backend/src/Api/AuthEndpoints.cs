@@ -133,6 +133,8 @@ public static class AuthEndpoints
     {
         var issuer = configuration["Jwt:Issuer"] ?? throw new InvalidOperationException("JWT issuer is required."); var audience = configuration["Jwt:Audience"] ?? throw new InvalidOperationException("JWT audience is required."); var key = configuration["Jwt:SigningKey"] ?? throw new InvalidOperationException("JWT signing key is required.");
         var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, userId.ToString()), new("tenant_id", tenantId.ToString()) }; if (campusId.HasValue) claims.Add(new("campus_id", campusId.Value.ToString()));
+        var globalRoles = await (from assignment in db.UserRoles join role in db.Roles on assignment.RoleId equals role.Id where assignment.UserId == userId select role.Name).ToListAsync(cancellationToken);
+        claims.AddRange(globalRoles.Where(x => x is not null).Select(x => new Claim(ClaimTypes.Role, x!)));
         var expires = clock.UtcNow.AddMinutes(15); var jwt = new JwtSecurityToken(issuer, audience, claims, expires: expires.UtcDateTime, signingCredentials: new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), SecurityAlgorithms.HmacSha256));
         var rawRefresh = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(48)); db.RefreshTokens.Add(new RefreshToken(Guid.NewGuid(), tenantId, userId, campusId, Hash(rawRefresh), clock.UtcNow, clock.UtcNow.AddDays(14))); await db.SaveChangesAsync(cancellationToken);
         return new { accessToken = new JwtSecurityTokenHandler().WriteToken(jwt), expiresAtUtc = expires, refreshToken = rawRefresh };

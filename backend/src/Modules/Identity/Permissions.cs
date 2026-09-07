@@ -1,5 +1,8 @@
 namespace GiddyEdu.Modules.Identity;
 
+public static class GlobalRoles { public const string PlatformAdministrator = "PlatformAdministrator"; }
+public static class PlatformPermissions { public const string TenantsView = "Platform.Tenants.View"; }
+
 public static class Permissions
 {
     public const string RolesManage = "Roles.Manage";
