@@ -12,6 +12,7 @@ export const portalItems: PortalItem[] = [
   { href: "/portal/staff", label: "Staff", description: "People and positions", permission: "Staff.View", feature: "staff-management", audiences: ["SuperAdmin", "SchoolAdmin", "Teacher", "Staff"] },
   { href: "/portal/admissions", label: "Admissions", description: "Applicants and offers", permission: "Admissions.View", feature: "admissions", audiences: ["SchoolAdmin", "Staff"] },
   { href: "/portal/students", label: "Students", description: "Learners and enrolments", permission: "Students.View", feature: "student-information", audiences: ["SchoolAdmin", "Teacher", "Staff", "Parent", "Student"] },
+  { href: "/portal/family", label: "My children", description: "Linked children and current class placement", permission: "Students.View", feature: "student-information", audiences: ["Parent"] },
   { href: "/portal/guardians", label: "Guardians", description: "Families and relationships", permission: "Guardians.View", feature: "guardian-management", audiences: ["SchoolAdmin", "Parent"] },
 ];
 

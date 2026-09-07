@@ -29,6 +29,7 @@ public static class PhaseOneEndpoints
         endpoints.MapGet("/api/v1/access/me", GetAccessContextAsync);
         endpoints.MapGet("/api/v1/portal/dashboard", GetPortalDashboardAsync);
         endpoints.MapGet("/api/v1/portal/teaching/classes", GetTeachingClassesAsync);
+        endpoints.MapGet("/api/v1/portal/family/students", GetFamilyStudentsAsync);
         endpoints.MapPost("/api/v1/account-invitations", CreateAccountInvitationAsync);
         endpoints.MapPost("/api/v1/account-invitations/accept", AcceptAccountInvitationAsync).AllowAnonymous().RequireRateLimiting("auth");
         var documents = endpoints.MapGroup("/api/v1/documents");
@@ -155,6 +156,8 @@ public static class PhaseOneEndpoints
         Results.Ok(await service.GetAsync(UserId(principal), audience, ct));
     private static async Task<IResult> GetTeachingClassesAsync(ClaimsPrincipal principal, IPortalDashboardService service, CancellationToken ct) =>
         Results.Ok(await service.GetTeachingClassesAsync(UserId(principal), ct));
+    private static async Task<IResult> GetFamilyStudentsAsync(ClaimsPrincipal principal, IPortalDashboardService service, CancellationToken ct) =>
+        Results.Ok(await service.GetFamilyStudentsAsync(UserId(principal), ct));
     private static async Task<IResult> CreateAccountInvitationAsync(CreateAccountInvitationInput input, ClaimsPrincipal principal, IAccountInvitationService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); var invitation = await service.CreateAsync(actor, input, ct); await audit.WriteAsync(actor, "AccountInvitation.Create", "AccountInvitation", invitation.Id.ToString(), "Succeeded", JsonSerializer.Serialize(new { invitation.TargetType, invitation.TargetId }), ct); return Results.Accepted($"/api/v1/account-invitations/{invitation.Id}", invitation); }
     private static async Task<IResult> AcceptAccountInvitationAsync(AcceptAccountInvitationInput input, IAccountInvitationService service, CancellationToken ct)

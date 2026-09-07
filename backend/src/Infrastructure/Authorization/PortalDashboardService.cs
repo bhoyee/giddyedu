@@ -10,11 +10,13 @@ namespace GiddyEdu.Infrastructure.Authorization;
 public sealed record PortalDashboardMetric(string Key, string Label, long Value, string? Href);
 public sealed record PortalDashboard(string Audience, IReadOnlyList<PortalDashboardMetric> Metrics, string Guidance);
 public sealed record TeachingClassSummary(Guid AssignmentId, Guid ClassSectionId, string ClassName, string ClassCode, string Responsibility, Guid? SubjectId, string? SubjectName, long? StudentCount);
+public sealed record FamilyStudentSummary(Guid StudentId, string AdmissionNumber, string FirstName, string LastName, string Relationship, bool IsPrimaryGuardian, Guid? ClassSectionId, string? ClassName);
 
 public interface IPortalDashboardService
 {
     Task<PortalDashboard> GetAsync(Guid userId, string audience, CancellationToken ct = default);
     Task<IReadOnlyList<TeachingClassSummary>> GetTeachingClassesAsync(Guid userId, CancellationToken ct = default);
+    Task<IReadOnlyList<FamilyStudentSummary>> GetFamilyStudentsAsync(Guid userId, CancellationToken ct = default);
 }
 
 public sealed class PortalDashboardService(
@@ -69,6 +71,32 @@ public sealed class PortalDashboardService(
         return rows.Select(x => new TeachingClassSummary(x.Id, x.ClassSectionId, x.Name, x.Code, x.Role.ToString(), x.SubjectId,
             x.SubjectId.HasValue && subjectNames.TryGetValue(x.SubjectId.Value, out var subjectName) ? subjectName : null,
             mayViewStudents ? studentCounts.GetValueOrDefault(x.ClassSectionId) : null)).ToList();
+    }
+
+    public async Task<IReadOnlyList<FamilyStudentSummary>> GetFamilyStudentsAsync(Guid userId, CancellationToken ct = default)
+    {
+        var effectivePermissions = await permissions.GetEffectivePermissionsAsync(userId, ct);
+        var presentation = await profiles.GetPresentationAsync(userId, effectivePermissions, ct);
+        if (!presentation.Audiences.Contains("Parent") || !await CanUseAsync(effectivePermissions, Permissions.StudentsView, FeatureKeys.StudentInformation, ct))
+            throw new UnauthorizedAccessException("The family workspace is not available for this account.");
+
+        var rows = await (from guardian in db.Guardians.AsNoTracking()
+                          join link in db.StudentGuardians.AsNoTracking() on guardian.Id equals link.GuardianId
+                          join student in db.Students.AsNoTracking() on link.StudentId equals student.Id
+                          where guardian.UserId == userId
+                          orderby student.LastName, student.FirstName
+                          select new { student.Id, student.AdmissionNumber, student.FirstName, student.LastName, link.Relationship, link.IsPrimary }).ToListAsync(ct);
+        var studentIds = rows.Select(x => x.Id).Distinct().ToArray();
+        var enrollments = await (from enrollment in db.Enrollments.AsNoTracking()
+                                 join section in db.ClassSections.AsNoTracking() on enrollment.ClassSectionId equals section.Id
+                                 where studentIds.Contains(enrollment.StudentId) && enrollment.Status == EnrollmentStatus.Active
+                                 select new { enrollment.StudentId, section.Id, section.Name }).ToDictionaryAsync(x => x.StudentId, ct);
+        return rows.Select(x =>
+        {
+            var hasEnrollment = enrollments.TryGetValue(x.Id, out var enrollment);
+            return new FamilyStudentSummary(x.Id, x.AdmissionNumber, x.FirstName, x.LastName, x.Relationship.ToString(), x.IsPrimary,
+                hasEnrollment ? enrollment!.Id : null, hasEnrollment ? enrollment!.Name : null);
+        }).ToList();
     }
 
     private async Task<PortalDashboard> AdministrativeDashboardAsync(string audience, IReadOnlyCollection<string> permissions, CancellationToken ct)

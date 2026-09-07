@@ -78,6 +78,27 @@ public sealed class PortalDashboardSecurityTests
         Assert.Equal(1, assignedClass.StudentCount);
     }
 
+    [Fact]
+    public async Task FamilyStudents_IncludeOnlyGuardianLinkedLearners()
+    {
+        var context = new TenantContextAccessor(); var tenantId = Guid.NewGuid(); context.Set(tenantId, null);
+        var options = new DbContextOptionsBuilder<GiddyEduDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        await using var db = new GiddyEduDbContext(options, context);
+        var actor = Guid.NewGuid(); var guardianId = Guid.NewGuid(); var linkedStudentId = Guid.NewGuid(); var unrelatedStudentId = Guid.NewGuid(); var now = DateTimeOffset.UtcNow;
+        var guardian = new Guardian(guardianId, tenantId, "Ada", "Parent", "0801", "ada@example.test", now); guardian.LinkUser(actor);
+        db.Guardians.Add(guardian);
+        db.Students.AddRange(
+            new Student(linkedStudentId, tenantId, "S-1", "Linked", "Child", new(2015, 1, 1), null, now),
+            new Student(unrelatedStudentId, tenantId, "S-2", "Unrelated", "Child", new(2015, 1, 1), null, now));
+        db.StudentGuardians.Add(new StudentGuardian(tenantId, linkedStudentId, guardianId, GuardianRelationshipType.Parent, true, true, true));
+        await db.SaveChangesAsync();
+        var service = new PortalDashboardService(db, new StubPermissions([Permissions.StudentsView]), new StubProfile(["Parent"]), new EnabledEntitlements());
+
+        var result = await service.GetFamilyStudentsAsync(actor);
+
+        Assert.Equal(linkedStudentId, Assert.Single(result).StudentId);
+    }
+
     private sealed class StubPermissions(IReadOnlyCollection<string> values) : IPermissionService
     {
         public Task<bool> HasPermissionAsync(Guid userId, string permission, CancellationToken cancellationToken = default) => Task.FromResult(values.Contains(permission));
