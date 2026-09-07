@@ -11,12 +11,15 @@ public sealed record PortalDashboardMetric(string Key, string Label, long Value,
 public sealed record PortalDashboard(string Audience, IReadOnlyList<PortalDashboardMetric> Metrics, string Guidance);
 public sealed record TeachingClassSummary(Guid AssignmentId, Guid ClassSectionId, string ClassName, string ClassCode, string Responsibility, Guid? SubjectId, string? SubjectName, long? StudentCount);
 public sealed record FamilyStudentSummary(Guid StudentId, string AdmissionNumber, string FirstName, string LastName, string Relationship, bool IsPrimaryGuardian, Guid? ClassSectionId, string? ClassName);
+public sealed record StudentEnrollmentSummary(Guid EnrollmentId, Guid ClassSectionId, string ClassName, string ClassCode, Guid AcademicYearId, string AcademicYearName, DateOnly EnrolledOn);
+public sealed record StudentSelfService(Guid StudentId, string AdmissionNumber, string FirstName, string LastName, DateOnly DateOfBirth, string? Email, string Status, StudentEnrollmentSummary? CurrentEnrollment);
 
 public interface IPortalDashboardService
 {
     Task<PortalDashboard> GetAsync(Guid userId, string audience, CancellationToken ct = default);
     Task<IReadOnlyList<TeachingClassSummary>> GetTeachingClassesAsync(Guid userId, CancellationToken ct = default);
     Task<IReadOnlyList<FamilyStudentSummary>> GetFamilyStudentsAsync(Guid userId, CancellationToken ct = default);
+    Task<StudentSelfService?> GetStudentSelfServiceAsync(Guid userId, CancellationToken ct = default);
 }
 
 public sealed class PortalDashboardService(
@@ -99,6 +102,25 @@ public sealed class PortalDashboardService(
         }).ToList();
     }
 
+    public async Task<StudentSelfService?> GetStudentSelfServiceAsync(Guid userId, CancellationToken ct = default)
+    {
+        var effectivePermissions = await permissions.GetEffectivePermissionsAsync(userId, ct);
+        var presentation = await profiles.GetPresentationAsync(userId, effectivePermissions, ct);
+        if (!presentation.Audiences.Contains("Student") || !await CanUseAsync(effectivePermissions, Permissions.StudentsView, FeatureKeys.StudentInformation, ct))
+            throw new UnauthorizedAccessException("The student workspace is not available for this account.");
+
+        var student = await db.Students.AsNoTracking().Where(x => x.UserId == userId)
+            .Select(x => new { x.Id, x.AdmissionNumber, x.FirstName, x.LastName, x.DateOfBirth, x.Email, x.Status }).SingleOrDefaultAsync(ct);
+        if (student is null) return null;
+        var enrollment = await (from current in db.Enrollments.AsNoTracking()
+                                join section in db.ClassSections.AsNoTracking() on current.ClassSectionId equals section.Id
+                                join year in db.AcademicYears.AsNoTracking() on current.AcademicYearId equals year.Id
+                                where current.StudentId == student.Id && current.Status == EnrollmentStatus.Active
+                                orderby current.EnrolledOn descending
+                                select new StudentEnrollmentSummary(current.Id, section.Id, section.Name, section.Code, year.Id, year.Name, current.EnrolledOn)).FirstOrDefaultAsync(ct);
+        return new(student.Id, student.AdmissionNumber, student.FirstName, student.LastName, student.DateOfBirth, student.Email, student.Status.ToString(), enrollment);
+    }
+
     private async Task<PortalDashboard> AdministrativeDashboardAsync(string audience, IReadOnlyCollection<string> permissions, CancellationToken ct)
     {
         var metrics = new List<PortalDashboardMetric>();
@@ -138,7 +160,7 @@ public sealed class PortalDashboardService(
     {
         var metrics = new List<PortalDashboardMetric>();
         if (await CanUseAsync(permissions, Permissions.StudentsView, FeatureKeys.StudentInformation, ct))
-            metrics.Add(new("children", "Linked children", await ScopedStudents(userId).LongCountAsync(ct), "/portal/students"));
+            metrics.Add(new("children", "Linked children", await ScopedStudents(userId).LongCountAsync(ct), "/portal/family"));
         return new("Parent", metrics,
             "Only students connected to your guardian account are included.");
     }
@@ -151,7 +173,7 @@ public sealed class PortalDashboardService(
         var profileCount = await studentIds.LongCountAsync(ct);
         var activeEnrollmentCount = await db.Enrollments.LongCountAsync(x => studentIds.Contains(x.StudentId) && x.Status == EnrollmentStatus.Active, ct);
         return new("Student",
-            [new("profile", "Linked student profile", profileCount, "/portal/students"), new("enrollments", "Current enrolments", activeEnrollmentCount, "/portal/students")],
+            [new("profile", "Linked student profile", profileCount, "/portal/student"), new("enrollments", "Current enrolments", activeEnrollmentCount, "/portal/student")],
             "Only your own student record and current enrolment are included.");
     }
 

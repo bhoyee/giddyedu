@@ -99,6 +99,28 @@ public sealed class PortalDashboardSecurityTests
         Assert.Equal(linkedStudentId, Assert.Single(result).StudentId);
     }
 
+    [Fact]
+    public async Task StudentSelfService_ReturnsOnlyTheActorsLinkedRecordAndEnrollment()
+    {
+        var context = new TenantContextAccessor(); var tenantId = Guid.NewGuid(); context.Set(tenantId, null);
+        var options = new DbContextOptionsBuilder<GiddyEduDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        await using var db = new GiddyEduDbContext(options, context);
+        var actor = Guid.NewGuid(); var studentId = Guid.NewGuid(); var yearId = Guid.NewGuid(); var classId = Guid.NewGuid(); var now = DateTimeOffset.UtcNow;
+        var student = new Student(studentId, tenantId, "SELF-1", "Own", "Record", new(2015, 1, 1), null, now); student.LinkUser(actor);
+        db.Students.AddRange(student, new Student(Guid.NewGuid(), tenantId, "OTHER-1", "Other", "Record", new(2015, 1, 1), null, now));
+        db.AcademicYears.Add(new AcademicYear(yearId, tenantId, "2026/2027", new(2026, 9, 1), new(2027, 7, 31), now));
+        db.ClassSections.Add(new ClassSection(classId, tenantId, Guid.NewGuid(), yearId, Guid.NewGuid(), "JSS 1 Gold", "JSS1-G", 30, now));
+        db.Enrollments.Add(new Enrollment(Guid.NewGuid(), tenantId, studentId, yearId, classId, new(2026, 9, 1), now));
+        await db.SaveChangesAsync();
+        var service = new PortalDashboardService(db, new StubPermissions([Permissions.StudentsView]), new StubProfile(["Student"]), new EnabledEntitlements());
+
+        var result = await service.GetStudentSelfServiceAsync(actor);
+
+        Assert.NotNull(result);
+        Assert.Equal(studentId, result.StudentId);
+        Assert.Equal(classId, result.CurrentEnrollment?.ClassSectionId);
+    }
+
     private sealed class StubPermissions(IReadOnlyCollection<string> values) : IPermissionService
     {
         public Task<bool> HasPermissionAsync(Guid userId, string permission, CancellationToken cancellationToken = default) => Task.FromResult(values.Contains(permission));
