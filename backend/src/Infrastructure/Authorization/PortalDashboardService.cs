@@ -16,6 +16,8 @@ public sealed record StudentSelfService(Guid StudentId, string AdmissionNumber, 
 public sealed record StaffSelfService(Guid StaffId, string StaffNumber, string FirstName, string LastName, string Category, string Status, string CampusName, string? DepartmentName, string? PositionName, string? WorkEmail, string? Phone, DateOnly HireDate, long TeachingAssignmentCount);
 public sealed record OperationalReadinessStep(string Key, string Label, bool Complete, string Detail, string Href);
 public sealed record OperationalReadiness(int CompletedSteps, int TotalSteps, int Percentage, IReadOnlyList<OperationalReadinessStep> Steps);
+public sealed record CommercialFeatureSummary(string Key, bool Enabled, long? Limit);
+public sealed record CommercialOverview(string? PlanCode, string? PlanName, DateTimeOffset? StartsAtUtc, DateTimeOffset? EndsAtUtc, long ActiveCampusCount, IReadOnlyList<CommercialFeatureSummary> Features);
 
 public interface IPortalDashboardService
 {
@@ -25,6 +27,7 @@ public interface IPortalDashboardService
     Task<StudentSelfService?> GetStudentSelfServiceAsync(Guid userId, CancellationToken ct = default);
     Task<StaffSelfService?> GetStaffSelfServiceAsync(Guid userId, CancellationToken ct = default);
     Task<OperationalReadiness> GetOperationalReadinessAsync(Guid userId, CancellationToken ct = default);
+    Task<CommercialOverview> GetCommercialOverviewAsync(Guid userId, CancellationToken ct = default);
 }
 
 public sealed class PortalDashboardService(
@@ -168,6 +171,28 @@ public sealed class PortalDashboardService(
             steps.Add(new("subscription", "Activate a subscription", await db.TenantSubscriptions.AnyAsync(x => x.IsActive, ct), "Confirm an active plan for the school.", "/portal/subscription"));
         var completed = steps.Count(x => x.Complete);
         return new(completed, steps.Count, steps.Count == 0 ? 0 : (int)Math.Round(completed * 100m / steps.Count, MidpointRounding.AwayFromZero), steps);
+    }
+
+    public async Task<CommercialOverview> GetCommercialOverviewAsync(Guid userId, CancellationToken ct = default)
+    {
+        var effectivePermissions = await permissions.GetEffectivePermissionsAsync(userId, ct);
+        var presentation = await profiles.GetPresentationAsync(userId, effectivePermissions, ct);
+        if (!presentation.Audiences.Contains("Accountant") || !effectivePermissions.Contains(Permissions.SchoolsView))
+            throw new UnauthorizedAccessException("The accountant workspace is not available for this account.");
+
+        var subscription = await (from current in db.TenantSubscriptions.AsNoTracking()
+                                  join plan in db.Plans.AsNoTracking() on current.PlanId equals plan.Id
+                                  where current.IsActive
+                                  orderby current.StartsAtUtc descending
+                                  select new { plan.Code, plan.Name, current.StartsAtUtc, current.EndsAtUtc }).FirstOrDefaultAsync(ct);
+        var features = new List<CommercialFeatureSummary>();
+        foreach (var key in FeatureKeys.PhaseOne)
+        {
+            var entitlement = await entitlements.GetAsync(key, null, ct);
+            features.Add(new(key, entitlement.Enabled, entitlement.Limit));
+        }
+        return new(subscription?.Code, subscription?.Name, subscription?.StartsAtUtc, subscription?.EndsAtUtc,
+            await db.Campuses.LongCountAsync(x => x.IsActive, ct), features);
     }
 
     private async Task<PortalDashboard> AdministrativeDashboardAsync(string audience, IReadOnlyCollection<string> permissions, CancellationToken ct)

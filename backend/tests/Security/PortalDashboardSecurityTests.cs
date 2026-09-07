@@ -6,6 +6,7 @@ using GiddyEdu.Modules.Identity;
 using GiddyEdu.Modules.Academics.Domain;
 using GiddyEdu.Modules.Hr.Domain;
 using GiddyEdu.Modules.StudentLifecycle.Domain;
+using GiddyEdu.Modules.Subscriptions.Domain;
 using GiddyEdu.Modules.Tenancy.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -155,6 +156,23 @@ public sealed class PortalDashboardSecurityTests
         var result = await service.GetOperationalReadinessAsync(Guid.NewGuid());
 
         Assert.False(result.Steps.Single(x => x.Key == "campus").Complete);
+    }
+
+    [Fact]
+    public async Task CommercialOverview_UsesOnlyTheCurrentTenantsSubscription()
+    {
+        var context = new TenantContextAccessor(); var tenantA = Guid.NewGuid(); var tenantB = Guid.NewGuid();
+        var options = new DbContextOptionsBuilder<GiddyEduDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        await using var db = new GiddyEduDbContext(options, context); var now = DateTimeOffset.UtcNow;
+        var planA = new Plan(Guid.NewGuid(), "plan-a", "Plan A"); var planB = new Plan(Guid.NewGuid(), "plan-b", "Plan B"); db.Plans.AddRange(planA, planB); await db.SaveChangesAsync();
+        context.Set(tenantA, null); db.TenantSubscriptions.Add(new TenantSubscription(Guid.NewGuid(), tenantA, planA.Id, now)); await db.SaveChangesAsync();
+        context.Set(tenantB, null); db.TenantSubscriptions.Add(new TenantSubscription(Guid.NewGuid(), tenantB, planB.Id, now)); await db.SaveChangesAsync();
+        context.Set(tenantA, null); db.ChangeTracker.Clear();
+        var service = new PortalDashboardService(db, new StubPermissions([Permissions.SchoolsView]), new StubProfile(["Accountant"]), new EnabledEntitlements());
+
+        var result = await service.GetCommercialOverviewAsync(Guid.NewGuid());
+
+        Assert.Equal("plan-a", result.PlanCode);
     }
 
     private sealed class StubPermissions(IReadOnlyCollection<string> values) : IPermissionService

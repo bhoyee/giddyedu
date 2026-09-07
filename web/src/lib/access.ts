@@ -7,6 +7,7 @@ export type PortalItem = { href: string; label: string; description: string; per
 export const portalItems: PortalItem[] = [
   { href: "/portal/subscription", label: "Subscription", description: "Plans and enabled features", permission: "TenantSettings.Manage", audiences: ["SuperAdmin", "SchoolAdmin", "Accountant"] },
   { href: "/portal/operations", label: "Operational readiness", description: "Track the Phase 1 school setup path", permission: "TenantSettings.Manage", audiences: ["SchoolAdmin"] },
+  { href: "/portal/commercial", label: "Commercial overview", description: "Current plan, campuses and enabled Phase 1 capabilities", permission: "Schools.View", audiences: ["Accountant"] },
   { href: "/portal/school", label: "School", description: "Profile and campuses", permission: "Schools.View", feature: "school-administration", audiences: ["SuperAdmin", "SchoolAdmin", "Teacher", "Staff"] },
   { href: "/portal/academics", label: "Academics", description: "Years, terms, classes and subjects", permission: "Academics.View", feature: "academic-structure", audiences: ["SchoolAdmin", "Teacher", "Staff", "Student"] },
   { href: "/portal/teaching", label: "My teaching", description: "Assigned classes, subjects and learner totals", permission: "Academics.View", feature: "academic-structure", audiences: ["Teacher"] },
