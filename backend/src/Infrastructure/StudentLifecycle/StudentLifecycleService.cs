@@ -14,8 +14,8 @@ public sealed record ApplicantInput(string ApplicationNumber, string FirstName, 
 public sealed record ApplicationTransitionInput(ApplicationStatus Status);
 public sealed record ApplicantInfo(Guid Id, string ApplicationNumber, string FirstName, string LastName, DateOnly DateOfBirth, ApplicationStatus Status, Guid? StudentId);
 public sealed record ConvertApplicantInput(string AdmissionNumber, Guid AcademicYearId, Guid ClassSectionId, DateOnly EnrolledOn);
-public sealed record StudentInfo(Guid Id, string AdmissionNumber, string FirstName, string LastName, DateOnly DateOfBirth, StudentStatus Status);
-public sealed record StudentProfileInput(string FirstName, string LastName, DateOnly DateOfBirth);
+public sealed record StudentInfo(Guid Id, string AdmissionNumber, string FirstName, string LastName, DateOnly DateOfBirth, string? Email, StudentStatus Status);
+public sealed record StudentProfileInput(string FirstName, string LastName, DateOnly DateOfBirth, string? Email = null);
 public sealed record GuardianInput(string FirstName, string LastName, string Phone, string? Email);
 public sealed record GuardianLinkInput(Guid GuardianId, GuardianRelationshipType Relationship, bool IsPrimary, bool IsEmergencyContact, bool MayCollect);
 public sealed record GuardianInfo(Guid Id, string FirstName, string LastName, string Phone, string? Email);
@@ -96,15 +96,15 @@ public sealed class StudentLifecycleService(GiddyEduDbContext db, ITenantContext
         await DemandAsync(actor, Permissions.AdmissionsManage, ct); await access.DemandAsync(actor, Permissions.StudentsManage, FeatureKeys.StudentInformation, ct);
         var applicant = await db.Applicants.SingleOrDefaultAsync(x => x.Id == applicantId, ct) ?? throw new KeyNotFoundException("Applicant was not found.");
         if (!await db.ClassSections.AnyAsync(x => x.Id == input.ClassSectionId && x.AcademicYearId == input.AcademicYearId && x.IsActive, ct)) throw new InvalidOperationException("The class section and academic year must belong to the current tenant and match.");
-        var id = Guid.NewGuid(); db.Students.Add(new Student(id, RequireTenant(), input.AdmissionNumber, applicant.FirstName, applicant.LastName, applicant.DateOfBirth, applicant.Id, clock.UtcNow)); db.Enrollments.Add(new Enrollment(Guid.NewGuid(), RequireTenant(), id, input.AcademicYearId, input.ClassSectionId, input.EnrolledOn, clock.UtcNow)); var sensitive = await db.ApplicantSensitiveRecords.AsNoTracking().SingleOrDefaultAsync(x => x.ApplicantId == applicantId, ct); if (sensitive is not null) db.StudentSensitiveRecords.Add(new StudentSensitiveRecord(RequireTenant(), id, sensitive.Address, sensitive.MedicalInformation, sensitive.Allergies, sensitive.SpecialEducationalNeeds, null, clock.UtcNow)); applicant.MarkConverted(id, clock.UtcNow); await db.SaveChangesAsync(ct); return id;
+        var id = Guid.NewGuid(); db.Students.Add(new Student(id, RequireTenant(), input.AdmissionNumber, applicant.FirstName, applicant.LastName, applicant.DateOfBirth, applicant.Id, clock.UtcNow, applicant.Email)); db.Enrollments.Add(new Enrollment(Guid.NewGuid(), RequireTenant(), id, input.AcademicYearId, input.ClassSectionId, input.EnrolledOn, clock.UtcNow)); var sensitive = await db.ApplicantSensitiveRecords.AsNoTracking().SingleOrDefaultAsync(x => x.ApplicantId == applicantId, ct); if (sensitive is not null) db.StudentSensitiveRecords.Add(new StudentSensitiveRecord(RequireTenant(), id, sensitive.Address, sensitive.MedicalInformation, sensitive.Allergies, sensitive.SpecialEducationalNeeds, null, clock.UtcNow)); applicant.MarkConverted(id, clock.UtcNow); await db.SaveChangesAsync(ct); return id;
     }
 
     public async Task<PageResult<StudentInfo>> ListStudentsAsync(Guid actor, int page, int pageSize, string? search, CancellationToken ct = default)
-    { await DemandAsync(actor, Permissions.StudentsView, ct); RequireTenant(); page = Math.Max(page, 1); pageSize = Math.Clamp(pageSize, 1, 100); var q = await ScopedStudentsAsync(actor, ct); if (!string.IsNullOrWhiteSpace(search)) { var s = search.Trim(); q = q.Where(x => x.AdmissionNumber.Contains(s) || x.FirstName.Contains(s) || x.LastName.Contains(s)); } var total = await q.LongCountAsync(ct); var items = await q.OrderBy(x => x.LastName).ThenBy(x => x.FirstName).Skip((page - 1) * pageSize).Take(pageSize).Select(x => new StudentInfo(x.Id, x.AdmissionNumber, x.FirstName, x.LastName, x.DateOfBirth, x.Status)).ToListAsync(ct); return new(items, page, pageSize, total); }
+    { await DemandAsync(actor, Permissions.StudentsView, ct); RequireTenant(); page = Math.Max(page, 1); pageSize = Math.Clamp(pageSize, 1, 100); var q = await ScopedStudentsAsync(actor, ct); if (!string.IsNullOrWhiteSpace(search)) { var s = search.Trim(); q = q.Where(x => x.AdmissionNumber.Contains(s) || x.FirstName.Contains(s) || x.LastName.Contains(s)); } var total = await q.LongCountAsync(ct); var items = await q.OrderBy(x => x.LastName).ThenBy(x => x.FirstName).Skip((page - 1) * pageSize).Take(pageSize).Select(x => new StudentInfo(x.Id, x.AdmissionNumber, x.FirstName, x.LastName, x.DateOfBirth, x.Email, x.Status)).ToListAsync(ct); return new(items, page, pageSize, total); }
 
     public async Task<StudentDetail> GetStudentAsync(Guid actor, Guid studentId, CancellationToken ct = default)
     {
-        await DemandAsync(actor, Permissions.StudentsView, ct); RequireTenant(); var canManage = await permissionService.HasPermissionAsync(actor, Permissions.StudentsManage, ct); var student = await (await ScopedStudentsAsync(actor, ct)).Where(x => x.Id == studentId).Select(x => new StudentInfo(x.Id, x.AdmissionNumber, x.FirstName, x.LastName, x.DateOfBirth, x.Status)).SingleOrDefaultAsync(ct) ?? throw new KeyNotFoundException("Student was not found.");
+        await DemandAsync(actor, Permissions.StudentsView, ct); RequireTenant(); var canManage = await permissionService.HasPermissionAsync(actor, Permissions.StudentsManage, ct); var student = await (await ScopedStudentsAsync(actor, ct)).Where(x => x.Id == studentId).Select(x => new StudentInfo(x.Id, x.AdmissionNumber, x.FirstName, x.LastName, x.DateOfBirth, x.Email, x.Status)).SingleOrDefaultAsync(ct) ?? throw new KeyNotFoundException("Student was not found.");
         var guardians = await (from link in db.StudentGuardians join guardian in db.Guardians on link.GuardianId equals guardian.Id where link.StudentId == studentId && (canManage || guardian.UserId == actor) select new GuardianInfo(guardian.Id, guardian.FirstName, guardian.LastName, guardian.Phone, guardian.Email)).ToListAsync(ct);
         var enrollments = await db.Enrollments.AsNoTracking().Where(x => x.StudentId == studentId).OrderByDescending(x => x.EnrolledOn).Select(x => new EnrollmentInfo(x.Id, x.AcademicYearId, x.ClassSectionId, x.EnrolledOn, x.Status)).ToListAsync(ct);
         return new(student, guardians, enrollments);
@@ -122,7 +122,7 @@ public sealed class StudentLifecycleService(GiddyEduDbContext db, ITenantContext
     }
 
     public async Task UpdateStudentAsync(Guid actor, Guid studentId, StudentProfileInput input, CancellationToken ct = default)
-    { await DemandAsync(actor, Permissions.StudentsManage, ct); var student = await db.Students.SingleOrDefaultAsync(x => x.Id == studentId, ct) ?? throw new KeyNotFoundException("Student was not found."); student.UpdatePersonalInformation(input.FirstName, input.LastName, input.DateOfBirth); await db.SaveChangesAsync(ct); }
+    { await DemandAsync(actor, Permissions.StudentsManage, ct); var student = await db.Students.SingleOrDefaultAsync(x => x.Id == studentId, ct) ?? throw new KeyNotFoundException("Student was not found."); student.UpdatePersonalInformation(input.FirstName, input.LastName, input.DateOfBirth, input.Email); await db.SaveChangesAsync(ct); }
 
     public async Task WithdrawStudentAsync(Guid actor, Guid studentId, CancellationToken ct = default)
     { await DemandAsync(actor, Permissions.StudentsManage, ct); var student = await db.Students.SingleOrDefaultAsync(x => x.Id == studentId, ct) ?? throw new KeyNotFoundException("Student was not found."); student.Withdraw(); var active = await db.Enrollments.Where(x => x.StudentId == studentId && x.Status == EnrollmentStatus.Active).ToListAsync(ct); foreach (var enrollment in active) enrollment.Complete(EnrollmentStatus.Withdrawn); await db.SaveChangesAsync(ct); }
@@ -160,7 +160,7 @@ public sealed class StudentLifecycleService(GiddyEduDbContext db, ITenantContext
         var query = db.Students.AsNoTracking();
         if (await permissionService.HasPermissionAsync(actor, Permissions.StudentsManage, ct)) return query;
         return query.Where(student =>
-            db.StudentGuardians.Any(link => link.StudentId == student.Id && db.Guardians.Any(guardian => guardian.Id == link.GuardianId && guardian.UserId == actor)) ||
+            student.UserId == actor || db.StudentGuardians.Any(link => link.StudentId == student.Id && db.Guardians.Any(guardian => guardian.Id == link.GuardianId && guardian.UserId == actor)) ||
             db.Enrollments.Any(enrollment => enrollment.StudentId == student.Id && enrollment.Status == EnrollmentStatus.Active &&
                 db.TeachingAssignments.Any(assignment => assignment.ClassSectionId == enrollment.ClassSectionId && db.StaffProfiles.Any(staff => staff.Id == assignment.StaffId && staff.UserId == actor))));
     }

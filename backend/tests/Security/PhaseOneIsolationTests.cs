@@ -124,6 +124,21 @@ public sealed class PhaseOneIsolationTests
         await Assert.ThrowsAsync<KeyNotFoundException>(() => service.GetStudentAsync(guardianUser, otherStudentId));
     }
 
+    [Fact]
+    public async Task StudentAccess_IsRestrictedToOwnCanonicalRecord()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
+        var userId = Guid.NewGuid(); var ownId = Guid.NewGuid(); var otherId = Guid.NewGuid();
+        var own = new Student(ownId, fixture.TenantA, "OWN-1", "Own", "Learner", new(2015, 1, 1), null, fixture.Clock.UtcNow, "student@example.test"); own.LinkUser(userId);
+        fixture.Db.Students.AddRange(own, new Student(otherId, fixture.TenantA, "OTHER-1", "Other", "Learner", new(2015, 1, 1), null, fixture.Clock.UtcNow)); await fixture.Db.SaveChangesAsync();
+
+        var service = fixture.Students(new ViewOnlyPermissions());
+        var students = await service.ListStudentsAsync(userId, 1, 25, null);
+
+        Assert.Equal(ownId, Assert.Single(students.Items).Id);
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.GetStudentAsync(userId, otherId));
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         private Fixture(GiddyEduDbContext db, TenantContextAccessor context, Guid tenantA, Guid tenantB, Guid campusA, SystemClock clock)

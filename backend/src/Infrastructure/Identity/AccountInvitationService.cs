@@ -38,6 +38,7 @@ public sealed class AccountInvitationService(GiddyEduDbContext db, ITenantContex
         {
             InvitationTargetType.Staff => await db.StaffProfiles.Where(x => x.Id == input.TargetId && x.UserId == null).Select(x => x.WorkEmail).SingleOrDefaultAsync(ct),
             InvitationTargetType.Guardian => await db.Guardians.Where(x => x.Id == input.TargetId && x.UserId == null).Select(x => x.Email).SingleOrDefaultAsync(ct),
+            InvitationTargetType.Student => await db.Students.Where(x => x.Id == input.TargetId && x.UserId == null).Select(x => x.Email).SingleOrDefaultAsync(ct),
             _ => null
         };
         if (string.IsNullOrWhiteSpace(email)) throw new InvalidOperationException("The unlinked record must have an email address before it can be invited.");
@@ -89,22 +90,32 @@ public sealed class AccountInvitationService(GiddyEduDbContext db, ITenantContex
             var staff = await db.StaffProfiles.SingleOrDefaultAsync(x => x.Id == invitation.TargetId && x.UserId == null, ct) ?? throw new InvalidOperationException("Staff record is already linked or unavailable.");
             staff.LinkUser(userId, clock.UtcNow);
         }
-        else
+        else if (invitation.TargetType == InvitationTargetType.Guardian)
         {
             var guardian = await db.Guardians.SingleOrDefaultAsync(x => x.Id == invitation.TargetId && x.UserId == null, ct) ?? throw new InvalidOperationException("Guardian record is already linked or unavailable.");
             guardian.LinkUser(userId);
         }
+        else if (invitation.TargetType == InvitationTargetType.Student)
+        {
+            var student = await db.Students.SingleOrDefaultAsync(x => x.Id == invitation.TargetId && x.UserId == null, ct) ?? throw new InvalidOperationException("Student record is already linked or unavailable.");
+            student.LinkUser(userId);
+        }
+        else throw new InvalidOperationException("Invitation target type is unsupported.");
     }
 
     private async Task<Guid> EnsureRoleAsync(InvitationTargetType targetType, CancellationToken ct)
     {
-        var tenantId = tenant.TenantId!.Value; var name = targetType == InvitationTargetType.Staff ? "Staff" : "Guardian";
-        var permissionNames = targetType == InvitationTargetType.Staff
-            ? new[] { Permissions.SchoolsView, Permissions.AcademicsView, Permissions.StaffView, Permissions.StudentsView }
-            : new[] { Permissions.StudentsView, Permissions.GuardiansView };
-        var role = await db.TenantRoles.SingleOrDefaultAsync(x => x.Name == name, ct);
-        if (role is null) { role = new TenantRole(Guid.NewGuid(), tenantId, name, true); db.TenantRoles.Add(role); }
-        var permissionIds = await db.Permissions.Where(x => permissionNames.Contains(x.Name)).Select(x => x.Id).ToListAsync(ct);
+        var tenantId = tenant.TenantId!.Value;
+        var template = targetType switch
+        {
+            InvitationTargetType.Staff => SystemRoleTemplates.Staff,
+            InvitationTargetType.Guardian => SystemRoleTemplates.Parent,
+            InvitationTargetType.Student => SystemRoleTemplates.Student,
+            _ => throw new InvalidOperationException("Invitation target type is unsupported.")
+        };
+        var role = await db.TenantRoles.SingleOrDefaultAsync(x => x.Name == template.Name, ct);
+        if (role is null) { role = new TenantRole(Guid.NewGuid(), tenantId, template.Name, true); db.TenantRoles.Add(role); }
+        var permissionIds = await db.Permissions.Where(x => template.Permissions.Contains(x.Name)).Select(x => x.Id).ToListAsync(ct);
         foreach (var permissionId in permissionIds)
             if (!await db.RolePermissions.AnyAsync(x => x.RoleId == role.Id && x.PermissionId == permissionId, ct)) db.RolePermissions.Add(new RolePermission(tenantId, role.Id, permissionId));
         return role.Id;

@@ -2,7 +2,7 @@ using GiddyEdu.BuildingBlocks.Tenancy;
 
 namespace GiddyEdu.Modules.Identity.Domain;
 
-public enum InvitationTargetType { Staff, Guardian }
+public enum InvitationTargetType { Staff, Guardian, Student }
 
 public sealed class AccountInvitation : ITenantOwned
 {

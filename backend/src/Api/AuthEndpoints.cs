@@ -63,6 +63,12 @@ public static class AuthEndpoints
             db.TenantRoles.Add(new TenantRole(roleId, tenantId, "Tenant Administrator", true));
             db.RolePermissions.AddRange(permissionIds.Select(x => new RolePermission(tenantId, roleId, x)));
             db.TenantMembershipRoles.Add(new TenantMembershipRole(tenantId, membershipId, roleId));
+            var permissionMap = await db.Permissions.Where(x => catalog.Contains(x.Name)).ToDictionaryAsync(x => x.Name, x => x.Id, cancellationToken);
+            foreach (var template in SystemRoleTemplates.TenantDefaults)
+            {
+                var templateRoleId = Guid.NewGuid(); db.TenantRoles.Add(new TenantRole(templateRoleId, tenantId, template.Name, true));
+                db.RolePermissions.AddRange(template.Permissions.Where(permissionMap.ContainsKey).Select(name => new RolePermission(tenantId, templateRoleId, permissionMap[name])));
+            }
             await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken); registrationCommitted = true;
 
             var token = Encode(await users.GenerateEmailConfirmationTokenAsync(user));

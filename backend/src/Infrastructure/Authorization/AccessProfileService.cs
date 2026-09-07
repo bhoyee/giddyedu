@@ -23,13 +23,14 @@ public sealed class AccessProfileService(GiddyEduDbContext db) : IAccessProfileS
         var staffId = await db.StaffProfiles.Where(x => x.UserId == userId).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
         var isTeacher = staffId.HasValue && await db.TeachingAssignments.AnyAsync(x => x.StaffId == staffId.Value, ct);
         var isGuardian = await db.Guardians.AnyAsync(x => x.UserId == userId, ct);
-        return PortalAudienceResolver.Resolve(roles, effectivePermissions, staffId.HasValue, isTeacher, isGuardian);
+        var isStudent = await db.Students.AnyAsync(x => x.UserId == userId, ct);
+        return PortalAudienceResolver.Resolve(roles, effectivePermissions, staffId.HasValue, isTeacher, isGuardian, isStudent);
     }
 }
 
 public static class PortalAudienceResolver
 {
-    public static AccessPresentation Resolve(IReadOnlyList<string> roles, IReadOnlyCollection<string> permissions, bool isStaff, bool isTeacher, bool isGuardian)
+    public static AccessPresentation Resolve(IReadOnlyList<string> roles, IReadOnlyCollection<string> permissions, bool isStaff, bool isTeacher, bool isGuardian, bool isStudent = false)
     {
         var names = roles.Select(x => x.Trim().ToLowerInvariant()).ToArray();
         var audiences = new List<string>();
@@ -38,7 +39,7 @@ public static class PortalAudienceResolver
         if (isTeacher || names.Any(x => x.Contains("teacher"))) audiences.Add("Teacher");
         if (isStaff || names.Any(x => x is "staff" or "employee")) audiences.Add("Staff");
         if (isGuardian || names.Any(x => x.Contains("parent") || x.Contains("guardian"))) audiences.Add("Parent");
-        if (names.Any(x => x is "student" or "learner")) audiences.Add("Student");
+        if (isStudent || names.Any(x => x is "student" or "learner")) audiences.Add("Student");
         if (names.Any(x => x.Contains("accountant") || x.Contains("bursar") || x.Contains("finance"))) audiences.Add("Accountant");
         if (audiences.Count == 0) audiences.Add("Staff");
         var preferred = new[] { "SuperAdmin", "SchoolAdmin", "Teacher", "Staff", "Parent", "Student", "Accountant" }.First(audiences.Contains);

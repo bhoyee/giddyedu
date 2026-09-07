@@ -90,7 +90,7 @@ public sealed class ProfileImportService(GiddyEduDbContext db, ITenantContext te
 
 public sealed class ProfileImportJob(GiddyEduDbContext db, ITenantContextSetter tenant, IFileObjectStorage storage, IImportErrorReportWriter reports, IClock clock, ILogger<ProfileImportJob> logger)
 {
-    private static readonly string[] StudentHeaders = ["AdmissionNumber", "FirstName", "LastName", "DateOfBirth", "Status"];
+    private static readonly string[] StudentHeaders = ["AdmissionNumber", "FirstName", "LastName", "DateOfBirth", "Email", "Status"];
     private static readonly string[] GuardianHeaders = ["FirstName", "LastName", "Phone", "Email"];
 
     [DisableConcurrentExecution(timeoutInSeconds: 600)]
@@ -137,10 +137,11 @@ public sealed class ProfileImportJob(GiddyEduDbContext db, ITenantContextSetter 
             if (row.Count != StudentHeaders.Length || string.IsNullOrWhiteSpace(row[0]) || string.IsNullOrWhiteSpace(row[1]) || string.IsNullOrWhiteSpace(row[2])) { errors.Add($"Row {number} is missing required values or has an incorrect number of columns."); continue; }
             if (!DateOnly.TryParseExact(row[3], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var birthDate)) { errors.Add($"Row {number} has an invalid date of birth."); continue; }
             var admissionNumber = row[0].Trim().ToUpperInvariant();
-            if (admissionNumber.Length > 50 || row[1].Trim().Length > 100 || row[2].Trim().Length > 100) { errors.Add($"Row {number} contains a value that exceeds its permitted length."); continue; }
-            if (!string.IsNullOrWhiteSpace(row[4]) && !string.Equals(row[4], "Active", StringComparison.OrdinalIgnoreCase)) { errors.Add($"Row {number} has an unsupported initial status."); continue; }
+            if (admissionNumber.Length > 50 || row[1].Trim().Length > 100 || row[2].Trim().Length > 100 || row[4].Trim().Length > 320) { errors.Add($"Row {number} contains a value that exceeds its permitted length."); continue; }
+            if (!string.IsNullOrWhiteSpace(row[4]) && !MailAddress.TryCreate(row[4], out _)) { errors.Add($"Row {number} has an invalid email address."); continue; }
+            if (!string.IsNullOrWhiteSpace(row[5]) && !string.Equals(row[5], "Active", StringComparison.OrdinalIgnoreCase)) { errors.Add($"Row {number} has an unsupported initial status."); continue; }
             if (!seen.Add(admissionNumber) || existing.Contains(admissionNumber)) { errors.Add($"Row {number} has a duplicate admission number."); continue; }
-            db.Students.Add(new Student(Guid.NewGuid(), tenantId, admissionNumber, row[1], row[2], birthDate, null, clock.UtcNow));
+            db.Students.Add(new Student(Guid.NewGuid(), tenantId, admissionNumber, row[1], row[2], birthDate, null, clock.UtcNow, string.IsNullOrWhiteSpace(row[4]) ? null : row[4]));
         }
         return errors;
     }

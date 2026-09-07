@@ -33,9 +33,9 @@ public sealed class DataPortabilityService(GiddyEduDbContext db, IFeatureAccessG
     {
         await access.DemandAsync(actor, Permissions.StudentsManage, FeatureKeys.StudentInformation, ct);
         var query = db.Students.AsNoTracking().OrderBy(x => x.AdmissionNumber);
-        await EnsureSizeAsync(query, ct); var output = Header("AdmissionNumber", "FirstName", "LastName", "DateOfBirth", "Status");
-        await foreach (var row in query.Select(x => new { x.AdmissionNumber, x.FirstName, x.LastName, x.DateOfBirth, x.Status }).AsAsyncEnumerable().WithCancellation(ct))
-            Append(output, row.AdmissionNumber, row.FirstName, row.LastName, row.DateOfBirth.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), row.Status.ToString());
+        await EnsureSizeAsync(query, ct); var output = Header("AdmissionNumber", "FirstName", "LastName", "DateOfBirth", "Email", "Status");
+        await foreach (var row in query.Select(x => new { x.AdmissionNumber, x.FirstName, x.LastName, x.DateOfBirth, x.Email, x.Status }).AsAsyncEnumerable().WithCancellation(ct))
+            Append(output, row.AdmissionNumber, row.FirstName, row.LastName, row.DateOfBirth.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), row.Email, row.Status.ToString());
         return output.ToString();
     }
 

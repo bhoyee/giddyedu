@@ -34,3 +34,17 @@ public static class Permissions
         AdmissionsSensitiveView, AdmissionsSensitiveManage, StudentsSensitiveView, StudentsSensitiveManage
     ];
 }
+
+public sealed record SystemRoleTemplate(string Name, IReadOnlyCollection<string> Permissions);
+
+public static class SystemRoleTemplates
+{
+    public static readonly SystemRoleTemplate TenantAdministrator = new("Tenant Administrator", Permissions.Foundation);
+    public static readonly SystemRoleTemplate SchoolAdministrator = new("School Administrator", Permissions.Foundation);
+    public static readonly SystemRoleTemplate Teacher = new("Teacher", [Permissions.SchoolsView, Permissions.AcademicsView, Permissions.StaffView, Permissions.StudentsView]);
+    public static readonly SystemRoleTemplate Staff = new("Staff", [Permissions.SchoolsView, Permissions.AcademicsView, Permissions.StaffView, Permissions.StudentsView]);
+    public static readonly SystemRoleTemplate Parent = new("Parent", [Permissions.StudentsView, Permissions.GuardiansView]);
+    public static readonly SystemRoleTemplate Student = new("Student", [Permissions.AcademicsView, Permissions.StudentsView]);
+    public static readonly SystemRoleTemplate Accountant = new("Accountant / Bursar", [Permissions.SchoolsView]);
+    public static readonly IReadOnlyCollection<SystemRoleTemplate> TenantDefaults = [SchoolAdministrator, Teacher, Staff, Parent, Student, Accountant];
+}

@@ -3,6 +3,7 @@ using GiddyEdu.Modules.Schools.Domain;
 using GiddyEdu.Modules.Hr.Domain;
 using GiddyEdu.Modules.StudentLifecycle.Domain;
 using GiddyEdu.Modules.Identity.Domain;
+using GiddyEdu.Modules.Identity;
 using GiddyEdu.Modules.Platform.Domain;
 using GiddyEdu.Infrastructure.StudentLifecycle;
 using GiddyEdu.Infrastructure.Authorization;
@@ -163,5 +164,23 @@ public sealed class PhaseOneDomainTests
         var presentation = PortalAudienceResolver.Resolve(["Parent", "Bursar"], [], isStaff: false, isTeacher: false, isGuardian: true);
         Assert.Contains("Parent", presentation.Audiences);
         Assert.Contains("Accountant", presentation.Audiences);
+    }
+
+    [Fact]
+    public void StudentAccountLink_IsSingleRecordAndIdempotentForSameUser()
+    {
+        var userId = Guid.NewGuid();
+        var student = new Student(Guid.NewGuid(), Guid.NewGuid(), "STU-1", "Ada", "Okafor", new(2014, 5, 1), null, DateTimeOffset.UtcNow, "ada@example.test");
+        student.LinkUser(userId); student.LinkUser(userId);
+        Assert.Equal(userId, student.UserId);
+        Assert.Throws<InvalidOperationException>(() => student.LinkUser(Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void SystemRoleTemplates_DoNotGrantManagementPermissionsToEndUserRoles()
+    {
+        var endUserRoles = new[] { SystemRoleTemplates.Teacher, SystemRoleTemplates.Staff, SystemRoleTemplates.Parent, SystemRoleTemplates.Student, SystemRoleTemplates.Accountant };
+        Assert.All(endUserRoles, role => Assert.DoesNotContain(role.Permissions, permission => permission.EndsWith(".Manage", StringComparison.Ordinal)));
+        Assert.Equal(SystemRoleTemplates.TenantDefaults.Count, SystemRoleTemplates.TenantDefaults.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count());
     }
 }
