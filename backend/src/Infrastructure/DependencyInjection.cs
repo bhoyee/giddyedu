@@ -99,6 +99,7 @@ public static class DependencyInjection
             options.Lockout.MaxFailedAccessAttempts = 5;
             options.User.RequireUniqueEmail = true;
         }).AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<GiddyEduDbContext>().AddDefaultTokenProviders();
+        services.AddHostedService<PlatformAdministratorBootstrap>();
         services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redis));
         services.AddScoped<ITenantCache, TenantCache>();
         services.AddHangfire(config => config.UsePostgreSqlStorage(options => options.UseNpgsqlConnection(postgres)));
