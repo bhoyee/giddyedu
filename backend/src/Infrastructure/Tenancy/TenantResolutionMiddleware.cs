@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using GiddyEdu.BuildingBlocks.Tenancy;
 using GiddyEdu.Infrastructure.Persistence;
+using GiddyEdu.Modules.Identity;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
@@ -19,7 +20,17 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next)
         var tenantValue = context.User.FindFirstValue("tenant_id");
         var userValue = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
         var campusValue = context.User.FindFirstValue("campus_id");
-        if (!Guid.TryParse(tenantValue, out var tenantId) || !Guid.TryParse(userValue, out var userId))
+        if (!Guid.TryParse(userValue, out var userId))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(tenantValue) && context.User.IsInRole(GlobalRoles.PlatformAdministrator))
+        {
+            await next(context);
+            return;
+        }
+        if (!Guid.TryParse(tenantValue, out var tenantId))
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;

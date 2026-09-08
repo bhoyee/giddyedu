@@ -54,6 +54,21 @@ public sealed class AuditRecord : ITenantOwned
     public string? MetadataJson { get; private set; }
 }
 
+public sealed class PlatformAuditRecord
+{
+    private PlatformAuditRecord() { }
+    public PlatformAuditRecord(Guid id, Guid? actorUserId, string action, string targetType, string targetId, string result, DateTimeOffset occurredAtUtc, string? metadataJson)
+    { Id = id; ActorUserId = actorUserId; Action = action; TargetType = targetType; TargetId = targetId; Result = result; OccurredAtUtc = occurredAtUtc; MetadataJson = metadataJson; }
+    public Guid Id { get; private set; }
+    public Guid? ActorUserId { get; private set; }
+    public string Action { get; private set; } = null!;
+    public string TargetType { get; private set; } = null!;
+    public string TargetId { get; private set; } = null!;
+    public string Result { get; private set; } = null!;
+    public DateTimeOffset OccurredAtUtc { get; private set; }
+    public string? MetadataJson { get; private set; }
+}
+
 public enum StoredFileStatus { PendingUpload, Available, Deleted }
 
 public sealed class StoredFile : ITenantOwned

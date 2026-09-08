@@ -19,6 +19,7 @@ public static class AuthEndpoints
 {
     public sealed record RegisterRequest(string SchoolName, string SchoolSlug, string CampusName, string DisplayName, string Email, string Password);
     public sealed record LoginRequest(string Email, string Password, Guid TenantId, Guid? CampusId);
+    public sealed record PlatformLoginRequest(string Email, string Password);
     public sealed record RefreshRequest(string RefreshToken);
     public sealed record ConfirmEmailRequest(string Email, string Token);
     public sealed record ForgotPasswordRequest(string Email);
@@ -29,6 +30,7 @@ public static class AuthEndpoints
         var group = endpoints.MapGroup("/api/v1/auth").AllowAnonymous().RequireRateLimiting("auth");
         group.MapPost("/register", RegisterAsync);
         group.MapPost("/login", LoginAsync);
+        group.MapPost("/platform/login", PlatformLoginAsync);
         group.MapPost("/refresh", RefreshAsync);
         group.MapPost("/confirm-email", ConfirmEmailAsync);
         group.MapPost("/forgot-password", ForgotPasswordAsync);
@@ -95,9 +97,25 @@ public static class AuthEndpoints
         finally { tenant.Clear(); }
     }
 
+    private static async Task<IResult> PlatformLoginAsync(PlatformLoginRequest request, UserManager<PlatformUser> users, GiddyEduDbContext db, IConfiguration configuration, IClock clock, CancellationToken cancellationToken)
+    {
+        var user = await users.FindByEmailAsync(request.Email.Trim());
+        if (user is null || !user.IsActive || !user.EmailConfirmed || !await users.CheckPasswordAsync(user, request.Password) || !await users.IsInRoleAsync(user, GlobalRoles.PlatformAdministrator))
+            return Results.Unauthorized();
+        return Results.Ok(await IssuePlatformTokensAsync(user.Id, db, configuration, clock, cancellationToken));
+    }
+
     private static async Task<IResult> RefreshAsync(RefreshRequest request, GiddyEduDbContext db, ITenantContextSetter tenant, IConfiguration configuration, IClock clock, CancellationToken cancellationToken)
     {
-        var existing = await db.RefreshTokens.IgnoreQueryFilters().SingleOrDefaultAsync(x => x.TokenHash == Hash(request.RefreshToken), cancellationToken);
+        var tokenHash = Hash(request.RefreshToken);
+        var platformToken = await db.PlatformRefreshTokens.SingleOrDefaultAsync(x => x.TokenHash == tokenHash, cancellationToken);
+        if (platformToken is not null)
+        {
+            if (!platformToken.IsUsable(clock.UtcNow) || !await IsPlatformAdministratorAsync(platformToken.UserId, db, cancellationToken)) return Results.Unauthorized();
+            platformToken.Revoke(clock.UtcNow);
+            return Results.Ok(await IssuePlatformTokensAsync(platformToken.UserId, db, configuration, clock, cancellationToken));
+        }
+        var existing = await db.RefreshTokens.IgnoreQueryFilters().SingleOrDefaultAsync(x => x.TokenHash == tokenHash, cancellationToken);
         if (existing is null || !existing.IsUsable(clock.UtcNow)) return Results.Unauthorized();
         tenant.Set(existing.TenantId, existing.CampusId);
         try { existing.Revoke(clock.UtcNow); return Results.Ok(await IssueTokensAsync(existing.UserId, existing.TenantId, existing.CampusId, db, configuration, clock, cancellationToken)); }
@@ -116,6 +134,8 @@ public static class AuthEndpoints
         var user = await users.FindByEmailAsync(request.Email.Trim());
         if (user is not null && user.EmailConfirmed)
         {
+            var stampResult = await users.UpdateSecurityStampAsync(user);
+            if (!stampResult.Succeeded) throw new InvalidOperationException("Password reset could not be prepared.");
             var link = BuildLink(configuration, "reset-password", user.Email!, Encode(await users.GeneratePasswordResetTokenAsync(user)));
             await email.SendAsync(user.Email!, "Reset your GiddyEdu password", $"<p>Reset your password using <a href=\"{System.Net.WebUtility.HtmlEncode(link)}\">this secure link</a>.</p>", $"Reset your password: {link}");
         }
@@ -139,6 +159,23 @@ public static class AuthEndpoints
         var rawRefresh = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(48)); db.RefreshTokens.Add(new RefreshToken(Guid.NewGuid(), tenantId, userId, campusId, Hash(rawRefresh), clock.UtcNow, clock.UtcNow.AddDays(14))); await db.SaveChangesAsync(cancellationToken);
         return new { accessToken = new JwtSecurityTokenHandler().WriteToken(jwt), expiresAtUtc = expires, refreshToken = rawRefresh };
     }
+
+    private static async Task<object> IssuePlatformTokensAsync(Guid userId, GiddyEduDbContext db, IConfiguration configuration, IClock clock, CancellationToken cancellationToken)
+    {
+        var issuer = configuration["Jwt:Issuer"] ?? throw new InvalidOperationException("JWT issuer is required.");
+        var audience = configuration["Jwt:Audience"] ?? throw new InvalidOperationException("JWT audience is required.");
+        var key = configuration["Jwt:SigningKey"] ?? throw new InvalidOperationException("JWT signing key is required.");
+        var expires = clock.UtcNow.AddMinutes(15);
+        var claims = new[] { new Claim(ClaimTypes.NameIdentifier, userId.ToString()), new Claim(ClaimTypes.Role, GlobalRoles.PlatformAdministrator) };
+        var jwt = new JwtSecurityToken(issuer, audience, claims, expires: expires.UtcDateTime, signingCredentials: new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), SecurityAlgorithms.HmacSha256));
+        var rawRefresh = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(48));
+        db.PlatformRefreshTokens.Add(new PlatformRefreshToken(Guid.NewGuid(), userId, Hash(rawRefresh), clock.UtcNow, clock.UtcNow.AddDays(14)));
+        await db.SaveChangesAsync(cancellationToken);
+        return new { accessToken = new JwtSecurityTokenHandler().WriteToken(jwt), expiresAtUtc = expires, refreshToken = rawRefresh };
+    }
+
+    private static Task<bool> IsPlatformAdministratorAsync(Guid userId, GiddyEduDbContext db, CancellationToken cancellationToken) =>
+        (from assignment in db.UserRoles join role in db.Roles on assignment.RoleId equals role.Id where assignment.UserId == userId && role.Name == GlobalRoles.PlatformAdministrator select role.Id).AnyAsync(cancellationToken);
 
     private static string BuildLink(IConfiguration configuration, string path, string email, string token) => $"{configuration["App:PublicBaseUrl"]?.TrimEnd('/') ?? "http://localhost:3000"}/{path}?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}";
     private static string Encode(string token) => WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(token));

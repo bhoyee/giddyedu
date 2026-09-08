@@ -152,11 +152,13 @@ public static class PhaseOneEndpoints
 
     private static async Task<IResult> GetAccessContextAsync(ClaimsPrincipal principal, ITenantContext tenant, IPermissionService permissions, IAccessProfileService profiles, IEntitlementService entitlements, CancellationToken ct)
     {
-        var actor = UserId(principal); var effectivePermissions = await permissions.GetEffectivePermissionsAsync(actor, ct);
+        var actor = UserId(principal); var platformAdmin = principal.IsInRole(GlobalRoles.PlatformAdministrator);
+        if (platformAdmin && !tenant.TenantId.HasValue)
+            return Results.Ok(new { userId = actor, tenantId = (Guid?)null, campusId = (Guid?)null, roles = new[] { GlobalRoles.PlatformAdministrator }, audiences = new[] { "SuperAdmin" }, defaultAudience = "SuperAdmin", permissions = new[] { PlatformPermissions.TenantsView }, entitlements = new Dictionary<string, EffectiveEntitlement>() });
+        var effectivePermissions = await permissions.GetEffectivePermissionsAsync(actor, ct);
         var presentation = await profiles.GetPresentationAsync(actor, effectivePermissions, ct);
         var effectiveEntitlements = new Dictionary<string, EffectiveEntitlement>();
         foreach (var featureKey in FeatureKeys.PhaseOne) effectiveEntitlements[featureKey] = await entitlements.GetAsync(featureKey, tenant.CampusId, ct);
-        var platformAdmin = principal.IsInRole(GlobalRoles.PlatformAdministrator);
         var audiences = platformAdmin ? new[] { "SuperAdmin" }.Concat(presentation.Audiences).Distinct().ToArray() : presentation.Audiences;
         var permissionList = platformAdmin ? effectivePermissions.Append(PlatformPermissions.TenantsView).Distinct().ToArray() : effectivePermissions;
         return Results.Ok(new { userId = actor, tenantId = tenant.TenantId, campusId = tenant.CampusId, roles = presentation.Roles, audiences, defaultAudience = platformAdmin ? "SuperAdmin" : presentation.DefaultAudience, permissions = permissionList, entitlements = effectiveEntitlements });

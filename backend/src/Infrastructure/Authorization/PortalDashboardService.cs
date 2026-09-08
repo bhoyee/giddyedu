@@ -49,7 +49,7 @@ public sealed class PortalDashboardService(
         return canonicalAudience switch
         {
             "SchoolAdmin" => await AdministrativeDashboardAsync(canonicalAudience, effectivePermissions, ct),
-            "SuperAdmin" => await AdministrativeDashboardAsync(canonicalAudience, effectivePermissions, ct),
+            "SuperAdmin" => await PlatformDashboardAsync(ct),
             "Teacher" => await StaffDashboardAsync(userId, canonicalAudience, true, effectivePermissions, ct),
             "Staff" => await StaffDashboardAsync(userId, canonicalAudience, false, effectivePermissions, ct),
             "Parent" => await ParentDashboardAsync(userId, effectivePermissions, ct),
@@ -213,6 +213,13 @@ public sealed class PortalDashboardService(
             ? "This Phase 1 view is limited to the selected tenant. Platform-wide administration requires a separate platform security boundary."
             : "Review the school core records that your permissions and subscription make available.");
     }
+
+    private async Task<PortalDashboard> PlatformDashboardAsync(CancellationToken ct) => new("SuperAdmin",
+    [
+        new("tenants", "Active tenants", await db.Tenants.IgnoreQueryFilters().LongCountAsync(x => x.IsActive, ct), "/portal/platform"),
+        new("campuses", "Active campuses", await db.Campuses.IgnoreQueryFilters().LongCountAsync(x => x.IsActive, ct), "/portal/platform"),
+        new("memberships", "Active memberships", await db.TenantMemberships.IgnoreQueryFilters().LongCountAsync(x => x.IsActive, ct), "/portal/platform")
+    ], "Platform totals cover all tenants. School data remains accessible only through an authorised tenant session.");
 
     private async Task<PortalDashboard> StaffDashboardAsync(Guid userId, string audience, bool teacherView, IReadOnlyCollection<string> permissions, CancellationToken ct)
     {

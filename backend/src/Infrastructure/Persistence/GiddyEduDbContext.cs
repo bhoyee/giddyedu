@@ -26,6 +26,7 @@ public sealed class GiddyEduDbContext(
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     public DbSet<TenantMembershipRole> TenantMembershipRoles => Set<TenantMembershipRole>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<PlatformRefreshToken> PlatformRefreshTokens => Set<PlatformRefreshToken>();
     public DbSet<AccountInvitation> AccountInvitations => Set<AccountInvitation>();
     public DbSet<Plan> Plans => Set<Plan>();
     public DbSet<Feature> Features => Set<Feature>();
@@ -43,6 +44,7 @@ public sealed class GiddyEduDbContext(
     public DbSet<CampusSetting> CampusSettings => Set<CampusSetting>();
     public DbSet<FeatureFlag> FeatureFlags => Set<FeatureFlag>();
     public DbSet<AuditRecord> AuditRecords => Set<AuditRecord>();
+    public DbSet<PlatformAuditRecord> PlatformAuditRecords => Set<PlatformAuditRecord>();
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
     public DbSet<NotificationMessage> NotificationMessages => Set<NotificationMessage>();
     public DbSet<SchoolProfile> SchoolProfiles => Set<SchoolProfile>();
@@ -98,7 +100,8 @@ public sealed class GiddyEduDbContext(
 
     private void ValidateChanges()
     {
-        if (ChangeTracker.Entries<AuditRecord>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))
+        if (ChangeTracker.Entries<AuditRecord>().Any(e => e.State is EntityState.Modified or EntityState.Deleted) ||
+            ChangeTracker.Entries<PlatformAuditRecord>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))
             throw new InvalidOperationException("Audit records are append-only.");
         foreach (var entry in ChangeTracker.Entries<ITenantOwned>().Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted))
         {
@@ -169,6 +172,7 @@ public sealed class GiddyEduDbContext(
         b.Entity<TenantMembership>(e => e.HasAlternateKey(x => new { x.TenantId, x.Id }));
         b.Entity<TenantMembershipRole>(e => { e.ToTable("TenantMembershipRoles"); e.HasKey(x => new { x.TenantId, x.MembershipId, x.RoleId }); e.HasOne<TenantMembership>().WithMany().HasForeignKey(x => new { x.TenantId, x.MembershipId }).HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Cascade); e.HasOne<TenantRole>().WithMany().HasForeignKey(x => new { x.TenantId, x.RoleId }).HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict); });
         b.Entity<RefreshToken>(e => { e.ToTable("RefreshTokens"); e.HasKey(x => x.Id); e.HasIndex(x => x.TokenHash).IsUnique(); e.HasIndex(x => new { x.TenantId, x.UserId, x.ExpiresAtUtc }); e.Property(x => x.TokenHash).HasMaxLength(64); });
+        b.Entity<PlatformRefreshToken>(e => { e.ToTable("PlatformRefreshTokens"); e.HasKey(x => x.Id); e.HasIndex(x => x.TokenHash).IsUnique(); e.HasIndex(x => new { x.UserId, x.ExpiresAtUtc }); e.Property(x => x.TokenHash).HasMaxLength(64); e.HasOne<PlatformUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade); });
         b.Entity<AccountInvitation>(e => { e.ToTable("AccountInvitations"); e.HasKey(x => x.Id); e.Property(x => x.Email).HasMaxLength(320); e.Property(x => x.TokenHash).HasMaxLength(64); e.HasIndex(x => x.TokenHash).IsUnique(); e.HasIndex(x => new { x.TenantId, x.TargetType, x.TargetId }); e.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict); });
     }
 
@@ -194,6 +198,7 @@ public sealed class GiddyEduDbContext(
         b.Entity<CampusSetting>(e => { e.ToTable("CampusSettings"); e.HasKey(x => new { x.TenantId, x.CampusId, x.Key }); e.Property(x => x.ValueJson).HasColumnType("jsonb"); });
         b.Entity<FeatureFlag>(e => { e.ToTable("FeatureFlags"); e.HasKey(x => new { x.Key, x.Environment }); });
         b.Entity<AuditRecord>(e => { e.ToTable("AuditRecords"); e.HasKey(x => x.Id); e.HasIndex(x => new { x.TenantId, x.OccurredAtUtc }); e.Property(x => x.MetadataJson).HasColumnType("jsonb"); });
+        b.Entity<PlatformAuditRecord>(e => { e.ToTable("PlatformAuditRecords"); e.HasKey(x => x.Id); e.HasIndex(x => x.OccurredAtUtc); e.Property(x => x.MetadataJson).HasColumnType("jsonb"); e.HasOne<PlatformUser>().WithMany().HasForeignKey(x => x.ActorUserId).OnDelete(DeleteBehavior.SetNull).IsRequired(false); });
         b.Entity<StoredFile>(e => { e.ToTable("StoredFiles"); e.HasKey(x => x.Id); e.HasIndex(x => new { x.TenantId, x.ObjectKey }).IsUnique(); e.HasIndex(x => new { x.TenantId, x.EntityType, x.EntityId }); });
         b.Entity<NotificationMessage>(e => { e.ToTable("NotificationMessages"); e.HasKey(x => x.Id); e.HasIndex(x => new { x.TenantId, x.Status, x.CreatedAtUtc }); e.Property(x => x.PayloadJson).HasColumnType("jsonb"); e.Property(x => x.LastError).HasMaxLength(500); });
     }
