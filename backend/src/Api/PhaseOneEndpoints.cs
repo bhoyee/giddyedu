@@ -17,6 +17,7 @@ using GiddyEdu.Infrastructure.Storage;
 using GiddyEdu.Modules.Subscriptions;
 using GiddyEdu.Infrastructure.Persistence;
 using GiddyEdu.BuildingBlocks.Time;
+using GiddyEdu.Modules.Platform.Domain;
 using Microsoft.EntityFrameworkCore;
 
 public static class PhaseOneEndpoints
@@ -26,6 +27,7 @@ public static class PhaseOneEndpoints
     public static IEndpointRouteBuilder MapPhaseOneEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/api/v1/plans", async (ISubscriptionManagementService service, CancellationToken ct) => Results.Ok(await service.ListPlansAsync(ct))).AllowAnonymous();
+        endpoints.MapGet("/api/v1/public/admissions/{tenantSlug}/form", GetPublicApplicationFormAsync).AllowAnonymous().RequireRateLimiting("auth");
         endpoints.MapPost("/api/v1/public/admissions/{tenantSlug}/applications", SubmitPublicApplicationAsync).AllowAnonymous().RequireRateLimiting("auth");
         endpoints.MapGet("/api/v1/access/me", GetAccessContextAsync);
         endpoints.MapGet("/api/v1/platform/admin/tenants", ListPlatformTenantsAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator));
@@ -131,12 +133,25 @@ public static class PhaseOneEndpoints
         return endpoints;
     }
 
-    public sealed record PublicApplicationInput(string FirstName, string LastName, DateOnly DateOfBirth, string? Email, string? Phone, string? PreviousSchool, string? Source);
+    public sealed record PublicApplicationInput(string FirstName, string LastName, DateOnly DateOfBirth, string? Email, string? Phone, string? PreviousSchool, string? Source, Dictionary<string, JsonElement>? CustomFields);
 
-    private static async Task<IResult> SubmitPublicApplicationAsync(string tenantSlug, PublicApplicationInput input, GiddyEduDbContext db, ITenantContextSetter tenantContext, IEntitlementService entitlements, IClock clock, CancellationToken ct)
+    private static async Task<IResult> GetPublicApplicationFormAsync(string tenantSlug, GiddyEduDbContext db, ITenantContextSetter tenantContext, IEntitlementService entitlements, CancellationToken ct)
+    {
+        var tenantId = await ResolvePublicTenantAsync(tenantSlug, db, ct); if (!tenantId.HasValue) return Results.NotFound(); tenantContext.Set(tenantId.Value, null);
+        try
+        {
+            if (!(await entitlements.GetAsync(FeatureKeys.Admissions, null, ct)).Enabled) return Results.NotFound();
+            var fields = await db.CustomFieldDefinitions.AsNoTracking().Where(x => x.TargetEntityType == "Applicant" && x.IsActive).OrderBy(x => x.DisplayOrder).ThenBy(x => x.FieldKey).ToListAsync(ct);
+            var ids = fields.Select(x => x.Id).ToArray(); var options = await db.CustomFieldOptions.AsNoTracking().Where(x => ids.Contains(x.DefinitionId)).OrderBy(x => x.DisplayOrder).ToListAsync(ct);
+            return Results.Ok(fields.Select(field => new { fieldKey = field.FieldKey, label = field.Label, helpText = field.HelpText, dataType = field.DataType, isRequired = field.IsRequired, defaultValue = field.DefaultValue, validationJson = field.ValidationJson, options = options.Where(option => option.DefinitionId == field.Id).Select(option => new { value = option.Value, label = option.Label }) }));
+        }
+        finally { tenantContext.Clear(); }
+    }
+
+    private static async Task<IResult> SubmitPublicApplicationAsync(string tenantSlug, PublicApplicationInput input, GiddyEduDbContext db, ITenantContextSetter tenantContext, IEntitlementService entitlements, ICustomFieldValueValidator validator, IClock clock, CancellationToken ct)
     {
         var normalizedSlug = tenantSlug.Trim().ToLowerInvariant();
-        var tenantId = await db.Tenants.IgnoreQueryFilters().Where(x => x.Slug == normalizedSlug && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+        var tenantId = await ResolvePublicTenantAsync(normalizedSlug, db, ct);
         if (!tenantId.HasValue) return Results.NotFound();
         tenantContext.Set(tenantId.Value, null);
         try
@@ -144,11 +159,35 @@ public static class PhaseOneEndpoints
             if (!(await entitlements.GetAsync(FeatureKeys.Admissions, null, ct)).Enabled) return Results.NotFound();
             var applicantId = Guid.NewGuid(); var applicationNumber = $"APP-{clock.UtcNow:yyyy}-{applicantId.ToString("N")[..10].ToUpperInvariant()}";
             var applicant = new Applicant(applicantId, tenantId.Value, applicationNumber, input.FirstName, input.LastName, input.DateOfBirth, input.Email, input.Phone, input.PreviousSchool, input.Source, clock.UtcNow);
+            var definitions = await db.CustomFieldDefinitions.Where(x => x.TargetEntityType == "Applicant" && x.IsActive).ToListAsync(ct);
+            var submitted = input.CustomFields ?? [];
+            if (submitted.Keys.Any(key => definitions.All(definition => definition.FieldKey != key))) return InvalidApplication("The application contains an unsupported field.");
+            foreach (var definition in definitions)
+            {
+                if (!submitted.TryGetValue(definition.FieldKey, out var value) || value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined || value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(value.GetString()))
+                { if (definition.IsRequired) return InvalidApplication($"{definition.Label} is required."); continue; }
+                if (!validator.IsValid(definition, value.GetRawText())) return InvalidApplication($"{definition.Label} is invalid.");
+                if (definition.DataType is CustomFieldDataType.SingleSelect or CustomFieldDataType.MultiSelect)
+                {
+                    var allowed = (await db.CustomFieldOptions.Where(option => option.DefinitionId == definition.Id).Select(option => option.Value).ToListAsync(ct)).ToHashSet(StringComparer.Ordinal);
+                    var selected = definition.DataType == CustomFieldDataType.SingleSelect ? new[] { value.GetString()! } : value.EnumerateArray().Select(item => item.GetString()!).ToArray();
+                    if (selected.Any(option => !allowed.Contains(option))) return InvalidApplication($"{definition.Label} contains an unsupported selection.");
+                }
+                db.CustomFieldValues.Add(new CustomFieldValue(Guid.NewGuid(), tenantId.Value, definition.Id, "Applicant", applicantId, value.GetRawText(), clock.UtcNow));
+            }
             applicant.Transition(ApplicationStatus.Submitted, clock.UtcNow); db.Applicants.Add(applicant); await db.SaveChangesAsync(ct);
             return Results.Accepted($"/api/v1/public/admissions/{normalizedSlug}/applications/{applicantId}", new { id = applicantId, applicationNumber });
         }
         finally { tenantContext.Clear(); }
     }
+
+    private static Task<Guid?> ResolvePublicTenantAsync(string tenantSlug, GiddyEduDbContext db, CancellationToken ct)
+    {
+        var normalizedSlug = tenantSlug.Trim().ToLowerInvariant();
+        return db.Tenants.IgnoreQueryFilters().Where(x => x.Slug == normalizedSlug && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+    }
+
+    private static IResult InvalidApplication(string message) => Results.ValidationProblem(new Dictionary<string, string[]> { ["application"] = [message] });
 
     private static async Task<IResult> GetAccessContextAsync(ClaimsPrincipal principal, ITenantContext tenant, IPermissionService permissions, IAccessProfileService profiles, IEntitlementService entitlements, CancellationToken ct)
     {

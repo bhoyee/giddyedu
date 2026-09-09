@@ -8,3 +8,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const upstream = await fetch(apiUrl(`/api/v1/public/admissions/${tenantSlug}/applications`), { method: "POST", headers: { "Content-Type": "application/json" }, body: await request.text(), cache: "no-store" });
   return NextResponse.json(await parseApiResponse(upstream), { status: upstream.status });
 }
+
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ tenantSlug: string }> }) {
+  const { tenantSlug } = await params;
+  if (!/^[a-z0-9-]{3,100}$/.test(tenantSlug)) return NextResponse.json({ message: "Invalid school." }, { status: 400 });
+  const upstream = await fetch(apiUrl(`/api/v1/public/admissions/${tenantSlug}/form`), { cache: "no-store" });
+  return NextResponse.json(await parseApiResponse(upstream), { status: upstream.status });
+}
