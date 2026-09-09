@@ -33,6 +33,11 @@ public static class PhaseOneEndpoints
         endpoints.MapPost("/api/v1/public/admissions/offers/{token}/response", RespondToOfferAsync).AllowAnonymous().RequireRateLimiting("auth");
         endpoints.MapGet("/api/v1/access/me", GetAccessContextAsync);
         endpoints.MapGet("/api/v1/platform/admin/tenants", ListPlatformTenantsAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator));
+        endpoints.MapPut("/api/v1/platform/admin/tenants/{tenantId:guid}/status", SetPlatformTenantStatusAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator));
+        endpoints.MapPost("/api/v1/platform/admin/tenants/{tenantId:guid}/subscription", ProvisionPlatformSubscriptionAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator));
+        endpoints.MapPost("/api/v1/platform/admin/tenants/{tenantId:guid}/subscriptions/{subscriptionId:guid}/grace-period", BeginPlatformSubscriptionGraceAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator));
+        endpoints.MapPost("/api/v1/platform/admin/tenants/{tenantId:guid}/subscriptions/{subscriptionId:guid}/suspend", SuspendPlatformSubscriptionAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator));
+        endpoints.MapPost("/api/v1/platform/admin/tenants/{tenantId:guid}/subscriptions/{subscriptionId:guid}/reactivate", ReactivatePlatformSubscriptionAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator));
         endpoints.MapGet("/api/v1/portal/dashboard", GetPortalDashboardAsync);
         endpoints.MapGet("/api/v1/portal/teaching/classes", GetTeachingClassesAsync);
         endpoints.MapGet("/api/v1/portal/family/students", GetFamilyStudentsAsync);
@@ -231,6 +236,11 @@ public static class PhaseOneEndpoints
         return Results.Ok(new { userId = actor, tenantId = tenant.TenantId, campusId = tenant.CampusId, roles = presentation.Roles, audiences, defaultAudience = platformAdmin ? "SuperAdmin" : presentation.DefaultAudience, permissions = permissionList, entitlements = effectiveEntitlements });
     }
     private static async Task<IResult> ListPlatformTenantsAsync(ClaimsPrincipal principal, IPlatformAdministrationService service, CancellationToken ct) => Results.Ok(await service.ListTenantsAsync(UserId(principal), ct));
+    private static async Task<IResult> SetPlatformTenantStatusAsync(Guid tenantId, PlatformTenantStatusInput input, ClaimsPrincipal principal, IPlatformAdministrationService service, CancellationToken ct) { await service.SetTenantStatusAsync(UserId(principal), tenantId, input, ct); return Results.NoContent(); }
+    private static async Task<IResult> ProvisionPlatformSubscriptionAsync(Guid tenantId, PlatformSubscriptionInput input, ClaimsPrincipal principal, IPlatformAdministrationService service, CancellationToken ct) { var id = await service.ProvisionSubscriptionAsync(UserId(principal), tenantId, input, ct); return Results.Ok(new { id }); }
+    private static async Task<IResult> BeginPlatformSubscriptionGraceAsync(Guid tenantId, Guid subscriptionId, PlatformGracePeriodInput input, ClaimsPrincipal principal, IPlatformAdministrationService service, CancellationToken ct) { await service.BeginGracePeriodAsync(UserId(principal), tenantId, subscriptionId, input, ct); return Results.NoContent(); }
+    private static async Task<IResult> SuspendPlatformSubscriptionAsync(Guid tenantId, Guid subscriptionId, ClaimsPrincipal principal, IPlatformAdministrationService service, CancellationToken ct) { await service.SuspendSubscriptionAsync(UserId(principal), tenantId, subscriptionId, ct); return Results.NoContent(); }
+    private static async Task<IResult> ReactivatePlatformSubscriptionAsync(Guid tenantId, Guid subscriptionId, PlatformSubscriptionInput input, ClaimsPrincipal principal, IPlatformAdministrationService service, CancellationToken ct) { await service.ReactivateSubscriptionAsync(UserId(principal), tenantId, subscriptionId, input, ct); return Results.NoContent(); }
     private static async Task<IResult> GetPortalDashboardAsync(string audience, ClaimsPrincipal principal, IPortalDashboardService service, CancellationToken ct) =>
         Results.Ok(await service.GetAsync(UserId(principal), audience, ct));
     private static async Task<IResult> GetTeachingClassesAsync(ClaimsPrincipal principal, IPortalDashboardService service, CancellationToken ct) =>

@@ -1,4 +1,5 @@
 using GiddyEdu.BuildingBlocks.Tenancy;
+using GiddyEdu.BuildingBlocks.Time;
 using GiddyEdu.Infrastructure.Authorization;
 using GiddyEdu.Infrastructure.Persistence;
 using GiddyEdu.Infrastructure.Subscriptions;
@@ -182,14 +183,19 @@ public sealed class PortalDashboardSecurityTests
         var context = new TenantContextAccessor(); context.Set(Guid.NewGuid(), null);
         var options = new DbContextOptionsBuilder<GiddyEduDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
         await using var db = new GiddyEduDbContext(options, context); var actor = Guid.NewGuid();
-        db.Tenants.AddRange(new Tenant(Guid.NewGuid(), "A", "platform-a", DateTimeOffset.UtcNow), new Tenant(Guid.NewGuid(), "B", "platform-b", DateTimeOffset.UtcNow)); await db.SaveChangesAsync();
-        var service = new PlatformAdministrationService(db);
+        var firstTenantId = Guid.NewGuid();
+        db.Tenants.AddRange(new Tenant(firstTenantId, "A", "platform-a", DateTimeOffset.UtcNow), new Tenant(Guid.NewGuid(), "B", "platform-b", DateTimeOffset.UtcNow)); await db.SaveChangesAsync();
+        var service = new PlatformAdministrationService(db, context, new SystemClock());
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ListTenantsAsync(actor));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.SetTenantStatusAsync(actor, firstTenantId, new PlatformTenantStatusInput(false)));
         var roleId = Guid.NewGuid(); db.Roles.Add(new IdentityRole<Guid>(GlobalRoles.PlatformAdministrator) { Id = roleId, NormalizedName = GlobalRoles.PlatformAdministrator.ToUpperInvariant() }); db.UserRoles.Add(new IdentityUserRole<Guid> { UserId = actor, RoleId = roleId }); await db.SaveChangesAsync();
 
         var tenants = await service.ListTenantsAsync(actor);
 
         Assert.Equal(2, tenants.Count);
+        await service.SetTenantStatusAsync(actor, tenants[0].Id, new PlatformTenantStatusInput(false));
+        Assert.False((await db.Tenants.SingleAsync(x => x.Id == tenants[0].Id)).IsActive);
+        Assert.Contains(await db.PlatformAuditRecords.ToListAsync(), x => x.Action == "Tenant.Suspend" && x.ActorUserId == actor);
     }
 
     private sealed class StubPermissions(IReadOnlyCollection<string> values) : IPermissionService
