@@ -35,6 +35,7 @@ public enum StudentStatus { Active, Suspended, Withdrawn, Graduated, Alumni }
 public enum GuardianRelationshipType { Mother, Father, Parent, LegalGuardian, Relative, Sponsor, Other }
 public enum EnrollmentStatus { Active, Completed, Withdrawn, Transferred }
 public enum InterviewStatus { Scheduled, Completed, Cancelled, NoShow }
+public enum AdmissionResponse { Pending, Accepted, Declined }
 
 public sealed class Applicant : ITenantOwned
 {
@@ -47,6 +48,16 @@ public sealed class Applicant : ITenantOwned
     private static bool Allowed(ApplicationStatus current, ApplicationStatus next) => (current, next) switch { (ApplicationStatus.Draft, ApplicationStatus.Submitted) => true, (ApplicationStatus.Submitted, ApplicationStatus.UnderReview) => true, (ApplicationStatus.UnderReview, ApplicationStatus.Waitlisted or ApplicationStatus.Offered or ApplicationStatus.Rejected) => true, (ApplicationStatus.Waitlisted, ApplicationStatus.Offered or ApplicationStatus.Rejected) => true, (ApplicationStatus.Offered, ApplicationStatus.Accepted or ApplicationStatus.Rejected) => true, (_, ApplicationStatus.Withdrawn) when current != ApplicationStatus.Converted => true, _ => false };
     private static string Required(string value, int max) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > max ? throw new ArgumentException($"Value is required and must not exceed {max} characters.") : value.Trim();
     private static string? Optional(string? value, int max) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length > max ? throw new ArgumentException($"Value must not exceed {max} characters.") : value.Trim();
+}
+
+public sealed class AdmissionOffer : ITenantOwned
+{
+    private AdmissionOffer() { }
+    public AdmissionOffer(Guid id, Guid tenantId, Guid applicantId, string tokenHash, DateTimeOffset expiresAtUtc, DateTimeOffset createdAtUtc)
+    { if (id == Guid.Empty || tenantId == Guid.Empty || applicantId == Guid.Empty || string.IsNullOrWhiteSpace(tokenHash)) throw new ArgumentException("Offer identifiers and token are required."); if (expiresAtUtc <= createdAtUtc) throw new ArgumentException("Offer expiry must be after creation."); Id = id; TenantId = tenantId; ApplicantId = applicantId; TokenHash = tokenHash; ExpiresAtUtc = expiresAtUtc; CreatedAtUtc = createdAtUtc; Response = AdmissionResponse.Pending; }
+    public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid ApplicantId { get; private set; } public string TokenHash { get; private set; } = null!; public DateTimeOffset ExpiresAtUtc { get; private set; } public AdmissionResponse Response { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; } public DateTimeOffset? RespondedAtUtc { get; private set; }
+    public void Respond(bool accepted, DateTimeOffset now) { if (Response != AdmissionResponse.Pending) throw new InvalidOperationException("This offer has already received a response."); if (now > ExpiresAtUtc) throw new InvalidOperationException("This offer has expired."); Response = accepted ? AdmissionResponse.Accepted : AdmissionResponse.Declined; RespondedAtUtc = now; }
+    public void Supersede(DateTimeOffset now) { if (Response == AdmissionResponse.Pending) { Response = AdmissionResponse.Declined; RespondedAtUtc = now; } }
 }
 
 public sealed class Student : ITenantOwned

@@ -69,6 +69,7 @@ public sealed class GiddyEduDbContext(
     public DbSet<StudentSensitiveRecord> StudentSensitiveRecords => Set<StudentSensitiveRecord>();
     public DbSet<AdmissionReview> AdmissionReviews => Set<AdmissionReview>();
     public DbSet<AdmissionInterview> AdmissionInterviews => Set<AdmissionInterview>();
+    public DbSet<AdmissionOffer> AdmissionOffers => Set<AdmissionOffer>();
     public DbSet<ImportOperation> ImportOperations => Set<ImportOperation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -154,6 +155,7 @@ public sealed class GiddyEduDbContext(
         modelBuilder.Entity<StudentSensitiveRecord>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<AdmissionReview>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<AdmissionInterview>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
+        modelBuilder.Entity<AdmissionOffer>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<ImportOperation>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
     }
 
@@ -257,5 +259,6 @@ public sealed class GiddyEduDbContext(
         b.Entity<StudentSensitiveRecord>(e => { e.ToTable("StudentSensitiveRecords"); e.HasKey(x => new { x.TenantId, x.StudentId }); e.Property(x => x.Address).HasMaxLength(1000); e.Property(x => x.MedicalInformation).HasMaxLength(2000); e.Property(x => x.Allergies).HasMaxLength(1000); e.Property(x => x.SpecialEducationalNeeds).HasMaxLength(2000); e.Property(x => x.PrivateNotes).HasMaxLength(2000); e.HasOne<Student>().WithOne().HasForeignKey<StudentSensitiveRecord>(x => new { x.TenantId, x.StudentId }).HasPrincipalKey<Student>(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Cascade); });
         b.Entity<AdmissionReview>(e => { e.ToTable("AdmissionReviews", table => table.HasCheckConstraint("CK_AdmissionReviews_Score", "\"Score\" >= 0 AND \"Score\" <= 100")); e.HasKey(x => new { x.TenantId, x.ApplicantId }); e.Property(x => x.Score).HasPrecision(5, 2); e.Property(x => x.ScreeningNotes).HasMaxLength(2000); e.HasOne<Applicant>().WithOne().HasForeignKey<AdmissionReview>(x => new { x.TenantId, x.ApplicantId }).HasPrincipalKey<Applicant>(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Cascade); });
         b.Entity<AdmissionInterview>(e => { e.ToTable("AdmissionInterviews"); e.HasKey(x => x.Id); e.Property(x => x.Location).HasMaxLength(300); e.Property(x => x.OutcomeNotes).HasMaxLength(2000); e.HasIndex(x => new { x.TenantId, x.ApplicantId, x.ScheduledAtUtc }); e.HasOne<Applicant>().WithMany().HasForeignKey(x => new { x.TenantId, x.ApplicantId }).HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Cascade); });
+        b.Entity<AdmissionOffer>(e => { e.ToTable("AdmissionOffers"); e.HasKey(x => x.Id); e.Property(x => x.TokenHash).HasMaxLength(64); e.HasIndex(x => x.TokenHash).IsUnique(); e.HasIndex(x => new { x.TenantId, x.ApplicantId, x.CreatedAtUtc }); e.HasOne<Applicant>().WithMany().HasForeignKey(x => new { x.TenantId, x.ApplicantId }).HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Cascade); });
     }
 }

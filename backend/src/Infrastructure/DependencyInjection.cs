@@ -61,6 +61,7 @@ public static class DependencyInjection
         services.AddScoped<IAccountInvitationService, AccountInvitationService>();
         services.AddScoped<IStudentLifecycleService, StudentLifecycleService>();
         services.AddScoped<IAdmissionsCommunicationService, AdmissionsCommunicationService>();
+        services.AddScoped<IAdmissionDecisionService, AdmissionDecisionService>();
         services.AddScoped<IDataPortabilityService, DataPortabilityService>();
         services.AddScoped<IApplicantImportService, ApplicantImportService>();
         services.AddScoped<ApplicantImportJob>();

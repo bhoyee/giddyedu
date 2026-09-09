@@ -183,4 +183,26 @@ public sealed class PhaseOneDomainTests
         Assert.All(endUserRoles, role => Assert.DoesNotContain(role.Permissions, permission => permission.EndsWith(".Manage", StringComparison.Ordinal)));
         Assert.Equal(SystemRoleTemplates.TenantDefaults.Count, SystemRoleTemplates.TenantDefaults.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count());
     }
+
+    [Fact]
+    public void AdmissionOffer_AllowsOnlyOneResponseBeforeExpiry()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var offer = new AdmissionOffer(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "HASH", now.AddDays(7), now);
+
+        offer.Respond(true, now.AddDays(1));
+
+        Assert.Equal(AdmissionResponse.Accepted, offer.Response);
+        Assert.Throws<InvalidOperationException>(() => offer.Respond(false, now.AddDays(2)));
+    }
+
+    [Fact]
+    public void AdmissionOffer_RejectsExpiredResponse()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var offer = new AdmissionOffer(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "HASH", now.AddDays(1), now);
+
+        Assert.Throws<InvalidOperationException>(() => offer.Respond(true, now.AddDays(2)));
+        Assert.Equal(AdmissionResponse.Pending, offer.Response);
+    }
 }

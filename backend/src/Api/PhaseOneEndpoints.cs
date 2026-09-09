@@ -29,6 +29,8 @@ public static class PhaseOneEndpoints
         endpoints.MapGet("/api/v1/plans", async (ISubscriptionManagementService service, CancellationToken ct) => Results.Ok(await service.ListPlansAsync(ct))).AllowAnonymous();
         endpoints.MapGet("/api/v1/public/admissions/{tenantSlug}/form", GetPublicApplicationFormAsync).AllowAnonymous().RequireRateLimiting("auth");
         endpoints.MapPost("/api/v1/public/admissions/{tenantSlug}/applications", SubmitPublicApplicationAsync).AllowAnonymous().RequireRateLimiting("auth");
+        endpoints.MapGet("/api/v1/public/admissions/offers/{token}", GetPublicOfferAsync).AllowAnonymous().RequireRateLimiting("auth");
+        endpoints.MapPost("/api/v1/public/admissions/offers/{token}/response", RespondToOfferAsync).AllowAnonymous().RequireRateLimiting("auth");
         endpoints.MapGet("/api/v1/access/me", GetAccessContextAsync);
         endpoints.MapGet("/api/v1/platform/admin/tenants", ListPlatformTenantsAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator));
         endpoints.MapGet("/api/v1/portal/dashboard", GetPortalDashboardAsync);
@@ -98,6 +100,10 @@ public static class PhaseOneEndpoints
         admissions.MapPut("/interviews/{interviewId:guid}/outcome", CompleteAdmissionInterviewAsync);
         admissions.MapPost("/applicants/{applicantId:guid}/convert", ConvertApplicantAsync);
         admissions.MapPost("/applicants/{applicantId:guid}/communications", SendApplicantCommunicationAsync);
+        admissions.MapPost("/applicants/{applicantId:guid}/offer", IssueAdmissionOfferAsync);
+        admissions.MapPost("/applicants/{applicantId:guid}/reject", RejectApplicantAsync);
+        admissions.MapPost("/applicants/bulk/offer", IssueBulkAdmissionOffersAsync);
+        admissions.MapPost("/applicants/bulk/reject", RejectBulkApplicantsAsync);
         admissions.MapGet("/applicants/export.csv", ExportApplicantsAsync);
         admissions.MapPost("/applicants/imports/uploads", BeginApplicantImportAsync);
         admissions.MapPost("/applicants/imports/{operationId:guid}/complete", CompleteApplicantImportAsync);
@@ -134,6 +140,10 @@ public static class PhaseOneEndpoints
     }
 
     public sealed record PublicApplicationInput(string FirstName, string LastName, DateOnly DateOfBirth, string? Email, string? Phone, string? PreviousSchool, string? Source, Dictionary<string, JsonElement>? CustomFields);
+    public sealed record AdmissionOfferResponseInput(bool Accepted);
+
+    private static async Task<IResult> GetPublicOfferAsync(string token, IAdmissionDecisionService service, CancellationToken ct) => Results.Ok(await service.GetOfferAsync(token, ct));
+    private static async Task<IResult> RespondToOfferAsync(string token, AdmissionOfferResponseInput input, IAdmissionDecisionService service, CancellationToken ct) { await service.RespondAsync(token, input.Accepted, ct); return Results.NoContent(); }
 
     private static async Task<IResult> GetPublicApplicationFormAsync(string tenantSlug, GiddyEduDbContext db, ITenantContextSetter tenantContext, IEntitlementService entitlements, CancellationToken ct)
     {
@@ -302,6 +312,14 @@ public static class PhaseOneEndpoints
     { var actor = UserId(principal); var id = await service.ConvertAsync(actor, applicantId, input, ct); await audit.WriteAsync(actor, "Applicant.Convert", "Student", id.ToString(), "Succeeded", JsonSerializer.Serialize(new { applicantId }), ct); return Results.Created($"/api/v1/students/{id}", new { id }); }
     private static async Task<IResult> SendApplicantCommunicationAsync(Guid applicantId, ApplicantCommunicationInput input, ClaimsPrincipal principal, IAdmissionsCommunicationService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); var id = await service.SendAsync(actor, applicantId, input, ct); await audit.WriteAsync(actor, "Applicant.CommunicationQueue", "NotificationMessage", id.ToString(), "Succeeded", JsonSerializer.Serialize(new { applicantId, input.Type }), ct); return Results.Accepted($"/api/v1/notifications/{id}", new { id }); }
+    private static async Task<IResult> IssueAdmissionOfferAsync(Guid applicantId, IssueAdmissionOfferInput input, ClaimsPrincipal principal, IAdmissionDecisionService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); var id = await service.IssueOfferAsync(actor, applicantId, input, ct); await audit.WriteAsync(actor, "Applicant.Offer.Issue", "AdmissionOffer", id.ToString(), "Succeeded", JsonSerializer.Serialize(new { applicantId, input.ValidForDays }), ct); return Results.Accepted(value: new { offerId = id }); }
+    private static async Task<IResult> RejectApplicantAsync(Guid applicantId, ClaimsPrincipal principal, IAdmissionDecisionService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.RejectAsync(actor, applicantId, ct); await audit.WriteAsync(actor, "Applicant.Reject", "Applicant", applicantId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
+    private static async Task<IResult> IssueBulkAdmissionOffersAsync(BulkAdmissionDecisionInput input, ClaimsPrincipal principal, IAdmissionDecisionService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); var result = await service.IssueOffersAsync(actor, input, ct); await audit.WriteAsync(actor, "Applicant.BulkOffer", "ApplicantBatch", Guid.NewGuid().ToString(), "Succeeded", JsonSerializer.Serialize(new { result.Requested, result.Succeeded, result.Failed }), ct); return Results.Ok(result); }
+    private static async Task<IResult> RejectBulkApplicantsAsync(BulkAdmissionDecisionInput input, ClaimsPrincipal principal, IAdmissionDecisionService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); var result = await service.RejectAsync(actor, input.ApplicantIds, ct); await audit.WriteAsync(actor, "Applicant.BulkReject", "ApplicantBatch", Guid.NewGuid().ToString(), "Succeeded", JsonSerializer.Serialize(new { result.Requested, result.Succeeded, result.Failed }), ct); return Results.Ok(result); }
     private static Task<IResult> ExportApplicantsAsync(ClaimsPrincipal principal, IDataPortabilityService service, IAuditWriter audit, CancellationToken ct) => ExportAsync("applicants.csv", "Applicant.Export", principal, service.ExportApplicantsAsync, audit, ct);
     private static async Task<IResult> BeginApplicantImportAsync(ImportUploadInput input, ClaimsPrincipal principal, IApplicantImportService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); var upload = await service.BeginAsync(actor, input, ct); await audit.WriteAsync(actor, "Applicant.ImportUploadBegin", "ImportOperation", upload.OperationId.ToString(), "Succeeded", null, ct); return Results.Created($"/api/v1/admissions/applicants/imports/{upload.OperationId}", upload); }
