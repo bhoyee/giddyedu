@@ -13,6 +13,17 @@ namespace GiddyEdu.UnitTests;
 public sealed class PhaseOneDomainTests
 {
     [Fact]
+    public void StaffEmploymentRecord_RejectsEndBeforeStart()
+    {
+        Assert.Throws<ArgumentException>(() => new StaffEmploymentRecord(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "School", "Teacher", new DateOnly(2024, 1, 1), new DateOnly(2023, 12, 31), null, DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void StaffNextOfKin_RequiresContactDetails()
+    {
+        Assert.Throws<ArgumentException>(() => new StaffNextOfKin(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "", "Sibling", "08000000000", null, null, true, DateTimeOffset.UtcNow));
+    }
+    [Fact]
     public void AcademicYear_RejectsInvalidDateRange()
     {
         var date = new DateOnly(2026, 9, 1);
@@ -204,5 +215,30 @@ public sealed class PhaseOneDomainTests
 
         Assert.Throws<InvalidOperationException>(() => offer.Respond(true, now.AddDays(2)));
         Assert.Equal(AdmissionResponse.Pending, offer.Response);
+    }
+
+    [Fact]
+    public void ReturningStudent_CanReactivateAfterWithdrawal()
+    {
+        var withdrawn = new Student(Guid.NewGuid(), Guid.NewGuid(), "RET-1", "Ada", "Okafor", new(2012, 1, 1), null, DateTimeOffset.UtcNow);
+        withdrawn.Withdraw(); withdrawn.ReactivateForReturn();
+        Assert.Equal(StudentStatus.Active, withdrawn.Status);
+    }
+
+    [Fact]
+    public void Graduation_CompletesOnlyActiveStudentLifecycle()
+    {
+        var student = new Student(Guid.NewGuid(), Guid.NewGuid(), "GRAD-1", "Ada", "Okafor", new(2010, 1, 1), null, DateTimeOffset.UtcNow);
+        student.Graduate();
+        Assert.Equal(StudentStatus.Graduated, student.Status);
+        Assert.Throws<InvalidOperationException>(student.Graduate);
+    }
+
+    [Fact]
+    public void StudentProgression_RequiresDistinctHistoricalEnrollments()
+    {
+        var progression = new StudentProgression(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), StudentProgressionType.Promotion, "Advanced to the next level", Guid.NewGuid(), DateTimeOffset.UtcNow);
+        Assert.Equal(StudentProgressionType.Promotion, progression.Type);
+        Assert.Equal("Advanced to the next level", progression.Reason);
     }
 }

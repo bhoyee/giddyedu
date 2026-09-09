@@ -83,6 +83,16 @@ public static class PhaseOneEndpoints
         hr.MapPut("/staff/{staffId:guid}/user", LinkStaffUserAsync);
         hr.MapGet("/staff/{staffId:guid}/sensitive", GetStaffSensitiveAsync);
         hr.MapPut("/staff/{staffId:guid}/sensitive", UpsertStaffSensitiveAsync);
+        hr.MapGet("/staff/{staffId:guid}/employment", ListStaffEmploymentAsync);
+        hr.MapPost("/staff/{staffId:guid}/employment", AddStaffEmploymentAsync);
+        hr.MapDelete("/staff/{staffId:guid}/employment/{recordId:guid}", DeleteStaffEmploymentAsync);
+        hr.MapGet("/staff/{staffId:guid}/qualifications", ListStaffQualificationsAsync);
+        hr.MapPost("/staff/{staffId:guid}/qualifications", AddStaffQualificationAsync);
+        hr.MapDelete("/staff/{staffId:guid}/qualifications/{qualificationId:guid}", DeleteStaffQualificationAsync);
+        hr.MapGet("/staff/{staffId:guid}/next-of-kin", ListStaffNextOfKinAsync);
+        hr.MapPost("/staff/{staffId:guid}/next-of-kin", AddStaffNextOfKinAsync);
+        hr.MapPut("/staff/{staffId:guid}/next-of-kin/{contactId:guid}", UpdateStaffNextOfKinAsync);
+        hr.MapDelete("/staff/{staffId:guid}/next-of-kin/{contactId:guid}", DeleteStaffNextOfKinAsync);
         hr.MapGet("/teaching-assignments", ListTeachingAssignmentsAsync);
         hr.MapPost("/teaching-assignments", CreateTeachingAssignmentAsync);
         hr.MapDelete("/teaching-assignments/{assignmentId:guid}", DeleteTeachingAssignmentAsync);
@@ -115,6 +125,10 @@ public static class PhaseOneEndpoints
         students.MapGet("/{studentId:guid}", GetStudentAsync);
         students.MapPut("/{studentId:guid}", UpdateStudentAsync);
         students.MapPost("/{studentId:guid}/enrollments", EnrollStudentAsync);
+        students.MapPost("/{studentId:guid}/re-enrolments", ReEnrollStudentAsync);
+        students.MapPost("/{studentId:guid}/progressions", ProgressStudentAsync);
+        students.MapPost("/{studentId:guid}/complete-enrolment", CompleteStudentEnrollmentAsync);
+        students.MapPost("/{studentId:guid}/graduate", GraduateStudentAsync);
         students.MapPost("/{studentId:guid}/withdraw", WithdrawStudentAsync);
         students.MapGet("/{studentId:guid}/sensitive", GetStudentSensitiveAsync);
         students.MapPut("/{studentId:guid}/sensitive", UpsertStudentSensitiveAsync);
@@ -286,6 +300,16 @@ public static class PhaseOneEndpoints
     { var result = await service.GetSensitiveAsync(UserId(principal), staffId, ct); return result is null ? Results.NotFound() : Results.Ok(result); }
     private static async Task<IResult> UpsertStaffSensitiveAsync(Guid staffId, StaffSensitiveInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); await service.UpsertSensitiveAsync(actor, staffId, input, ct); await audit.WriteAsync(actor, "Staff.SensitiveUpdate", "StaffProfile", staffId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
+    private static async Task<IResult> ListStaffEmploymentAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListEmploymentAsync(UserId(principal), staffId, ct));
+    private static async Task<IResult> AddStaffEmploymentAsync(Guid staffId, StaffEmploymentInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) => await CreatedHrAsync(await service.AddEmploymentAsync(UserId(principal), staffId, input, ct), "StaffEmploymentRecord", "Staff.EmploymentAdd", principal, audit, ct);
+    private static async Task<IResult> DeleteStaffEmploymentAsync(Guid staffId, Guid recordId, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) { var actor = UserId(principal); await service.DeleteEmploymentAsync(actor, staffId, recordId, ct); await audit.WriteAsync(actor, "Staff.EmploymentDelete", "StaffEmploymentRecord", recordId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
+    private static async Task<IResult> ListStaffQualificationsAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListQualificationsAsync(UserId(principal), staffId, ct));
+    private static async Task<IResult> AddStaffQualificationAsync(Guid staffId, StaffQualificationInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) => await CreatedHrAsync(await service.AddQualificationAsync(UserId(principal), staffId, input, ct), "StaffQualification", "Staff.QualificationAdd", principal, audit, ct);
+    private static async Task<IResult> DeleteStaffQualificationAsync(Guid staffId, Guid qualificationId, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) { var actor = UserId(principal); await service.DeleteQualificationAsync(actor, staffId, qualificationId, ct); await audit.WriteAsync(actor, "Staff.QualificationDelete", "StaffQualification", qualificationId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
+    private static async Task<IResult> ListStaffNextOfKinAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListNextOfKinAsync(UserId(principal), staffId, ct));
+    private static async Task<IResult> AddStaffNextOfKinAsync(Guid staffId, StaffNextOfKinInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) => await CreatedHrAsync(await service.AddNextOfKinAsync(UserId(principal), staffId, input, ct), "StaffNextOfKin", "Staff.NextOfKinAdd", principal, audit, ct);
+    private static async Task<IResult> UpdateStaffNextOfKinAsync(Guid staffId, Guid contactId, StaffNextOfKinInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) { var actor = UserId(principal); await service.UpdateNextOfKinAsync(actor, staffId, contactId, input, ct); await audit.WriteAsync(actor, "Staff.NextOfKinUpdate", "StaffNextOfKin", contactId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
+    private static async Task<IResult> DeleteStaffNextOfKinAsync(Guid staffId, Guid contactId, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) { var actor = UserId(principal); await service.DeleteNextOfKinAsync(actor, staffId, contactId, ct); await audit.WriteAsync(actor, "Staff.NextOfKinDelete", "StaffNextOfKin", contactId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
     private static async Task<IResult> ListTeachingAssignmentsAsync(Guid? classSectionId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListTeachingAssignmentsAsync(UserId(principal), classSectionId, ct));
     private static async Task<IResult> CreateTeachingAssignmentAsync(TeachingAssignmentInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) => await CreatedHrAsync(await service.CreateTeachingAssignmentAsync(UserId(principal), input, ct), "TeachingAssignment", "TeachingAssignment.Create", principal, audit, ct);
     private static async Task<IResult> DeleteTeachingAssignmentAsync(Guid assignmentId, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
@@ -346,6 +370,14 @@ public static class PhaseOneEndpoints
     { var actor = UserId(principal); await service.UpdateStudentAsync(actor, studentId, input, ct); await audit.WriteAsync(actor, "Student.Update", "Student", studentId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
     private static async Task<IResult> EnrollStudentAsync(Guid studentId, EnrollmentInput input, ClaimsPrincipal principal, IStudentLifecycleService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); var id = await service.EnrollStudentAsync(actor, studentId, input, ct); await audit.WriteAsync(actor, "Student.Enroll", "Enrollment", id.ToString(), "Succeeded", JsonSerializer.Serialize(new { studentId, input.AcademicYearId, input.ClassSectionId }), ct); return Results.Created($"/api/v1/students/{studentId}/enrollments/{id}", new { id }); }
+    private static async Task<IResult> ReEnrollStudentAsync(Guid studentId, EnrollmentInput input, ClaimsPrincipal principal, IStudentLifecycleService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); var id = await service.ReEnrollStudentAsync(actor, studentId, input, ct); await audit.WriteAsync(actor, "Student.ReEnroll", "Enrollment", id.ToString(), "Succeeded", JsonSerializer.Serialize(new { studentId, input.AcademicYearId, input.ClassSectionId }), ct); return Results.Created($"/api/v1/students/{studentId}/enrollments/{id}", new { id }); }
+    private static async Task<IResult> ProgressStudentAsync(Guid studentId, StudentProgressionInput input, ClaimsPrincipal principal, IStudentLifecycleService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); var id = await service.ProgressStudentAsync(actor, studentId, input, ct); await audit.WriteAsync(actor, $"Student.{input.Type}", "StudentProgression", id.ToString(), "Succeeded", JsonSerializer.Serialize(new { studentId, input.AcademicYearId, input.ClassSectionId }), ct); return Results.Created($"/api/v1/students/{studentId}/progressions/{id}", new { id }); }
+    private static async Task<IResult> CompleteStudentEnrollmentAsync(Guid studentId, ClaimsPrincipal principal, IStudentLifecycleService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.CompleteCurrentEnrollmentAsync(actor, studentId, ct); await audit.WriteAsync(actor, "Student.EnrollmentComplete", "Student", studentId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
+    private static async Task<IResult> GraduateStudentAsync(Guid studentId, ClaimsPrincipal principal, IStudentLifecycleService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.GraduateStudentAsync(actor, studentId, ct); await audit.WriteAsync(actor, "Student.Graduate", "Student", studentId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
     private static async Task<IResult> WithdrawStudentAsync(Guid studentId, ClaimsPrincipal principal, IStudentLifecycleService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); await service.WithdrawStudentAsync(actor, studentId, ct); await audit.WriteAsync(actor, "Student.Withdraw", "Student", studentId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
     private static async Task<IResult> GetStudentSensitiveAsync(Guid studentId, ClaimsPrincipal principal, IStudentLifecycleService service, IAuditWriter audit, CancellationToken ct)

@@ -34,6 +34,7 @@ public enum ApplicationStatus { Draft, Submitted, UnderReview, Waitlisted, Offer
 public enum StudentStatus { Active, Suspended, Withdrawn, Graduated, Alumni }
 public enum GuardianRelationshipType { Mother, Father, Parent, LegalGuardian, Relative, Sponsor, Other }
 public enum EnrollmentStatus { Active, Completed, Withdrawn, Transferred }
+public enum StudentProgressionType { Promotion, RepeatClass, Transfer }
 public enum InterviewStatus { Scheduled, Completed, Cancelled, NoShow }
 public enum AdmissionResponse { Pending, Accepted, Declined }
 
@@ -69,6 +70,8 @@ public sealed class Student : ITenantOwned
     public void UpdatePersonalInformation(string firstName, string lastName, DateOnly dateOfBirth, string? email = null) { FirstName = Required(firstName, 100); LastName = Required(lastName, 100); DateOfBirth = dateOfBirth; Email = Optional(email, 320); }
     public void LinkUser(Guid userId) { if (userId == Guid.Empty) throw new ArgumentException("User identifier is required.", nameof(userId)); if (UserId.HasValue && UserId != userId) throw new InvalidOperationException("Student is already linked to another account."); UserId = userId; }
     public void Withdraw() { if (Status != StudentStatus.Active) throw new InvalidOperationException("Only active students can be withdrawn."); Status = StudentStatus.Withdrawn; }
+    public void ReactivateForReturn() { if (Status == StudentStatus.Withdrawn) Status = StudentStatus.Active; else if (Status != StudentStatus.Active) throw new InvalidOperationException("Only active or withdrawn students can return for re-enrolment."); }
+    public void Graduate() { if (Status != StudentStatus.Active) throw new InvalidOperationException("Only an active student can graduate."); Status = StudentStatus.Graduated; }
     private static string Required(string value, int max) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > max ? throw new ArgumentException($"Value is required and must not exceed {max} characters.") : value.Trim();
     private static string? Optional(string? value, int max) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length > max ? throw new ArgumentException($"Value must not exceed {max} characters.") : value.Trim();
 }
@@ -96,6 +99,14 @@ public sealed class Enrollment : ITenantOwned
     public Enrollment(Guid id, Guid tenantId, Guid studentId, Guid academicYearId, Guid classSectionId, DateOnly enrolledOn, DateTimeOffset now) { if (id == Guid.Empty || tenantId == Guid.Empty) throw new ArgumentException("Enrollment identifiers are required."); Id = id; TenantId = tenantId; StudentId = studentId; AcademicYearId = academicYearId; ClassSectionId = classSectionId; EnrolledOn = enrolledOn; Status = EnrollmentStatus.Active; CreatedAtUtc = now; }
     public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid StudentId { get; private set; } public Guid AcademicYearId { get; private set; } public Guid ClassSectionId { get; private set; } public DateOnly EnrolledOn { get; private set; } public EnrollmentStatus Status { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
     public void Complete(EnrollmentStatus status) { if (Status != EnrollmentStatus.Active) throw new InvalidOperationException("Only an active enrolment can be completed."); if (status == EnrollmentStatus.Active) throw new ArgumentException("A terminal enrolment status is required.", nameof(status)); Status = status; }
+}
+
+public sealed class StudentProgression : ITenantOwned
+{
+    private StudentProgression() { }
+    public StudentProgression(Guid id, Guid tenantId, Guid studentId, Guid fromEnrollmentId, Guid toEnrollmentId, StudentProgressionType type, string? reason, Guid processedByUserId, DateTimeOffset createdAtUtc)
+    { if (id == Guid.Empty || tenantId == Guid.Empty || studentId == Guid.Empty || fromEnrollmentId == Guid.Empty || toEnrollmentId == Guid.Empty || processedByUserId == Guid.Empty) throw new ArgumentException("Progression identifiers are required."); Id = id; TenantId = tenantId; StudentId = studentId; FromEnrollmentId = fromEnrollmentId; ToEnrollmentId = toEnrollmentId; Type = type; Reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim().Length > 1000 ? throw new ArgumentException("Progression reason must not exceed 1000 characters.") : reason.Trim(); ProcessedByUserId = processedByUserId; CreatedAtUtc = createdAtUtc; }
+    public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid StudentId { get; private set; } public Guid FromEnrollmentId { get; private set; } public Guid ToEnrollmentId { get; private set; } public StudentProgressionType Type { get; private set; } public string? Reason { get; private set; } public Guid ProcessedByUserId { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
 }
 
 public sealed class ApplicantSensitiveRecord : ITenantOwned

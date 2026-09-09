@@ -4,6 +4,7 @@ using GiddyEdu.BuildingBlocks.Time;
 using GiddyEdu.Infrastructure.Authorization;
 using GiddyEdu.Infrastructure.Persistence;
 using GiddyEdu.Modules.Identity;
+using GiddyEdu.Modules.Academics.Domain;
 using GiddyEdu.Modules.StudentLifecycle.Domain;
 using GiddyEdu.Modules.Subscriptions;
 using Microsoft.EntityFrameworkCore;
@@ -21,6 +22,7 @@ public sealed record GuardianLinkInput(Guid GuardianId, GuardianRelationshipType
 public sealed record GuardianInfo(Guid Id, string FirstName, string LastName, string Phone, string? Email);
 public sealed record EnrollmentInfo(Guid Id, Guid AcademicYearId, Guid ClassSectionId, DateOnly EnrolledOn, EnrollmentStatus Status);
 public sealed record EnrollmentInput(Guid AcademicYearId, Guid ClassSectionId, DateOnly EnrolledOn, EnrollmentStatus PreviousEnrollmentStatus = EnrollmentStatus.Completed);
+public sealed record StudentProgressionInput(StudentProgressionType Type, Guid AcademicYearId, Guid ClassSectionId, DateOnly EffectiveOn, string? Reason);
 public sealed record StudentDetail(StudentInfo Student, IReadOnlyList<GuardianInfo> Guardians, IReadOnlyList<EnrollmentInfo> Enrollments);
 public sealed record ApplicantSensitiveInput(string? Address, string? MedicalInformation, string? Allergies, string? SpecialEducationalNeeds);
 public sealed record ApplicantSensitiveInfo(string? Address, string? MedicalInformation, string? Allergies, string? SpecialEducationalNeeds, DateTimeOffset UpdatedAtUtc);
@@ -49,6 +51,10 @@ public interface IStudentLifecycleService
     Task<StudentDetail> GetStudentAsync(Guid actor, Guid studentId, CancellationToken ct = default);
     Task UpdateStudentAsync(Guid actor, Guid studentId, StudentProfileInput input, CancellationToken ct = default);
     Task<Guid> EnrollStudentAsync(Guid actor, Guid studentId, EnrollmentInput input, CancellationToken ct = default);
+    Task<Guid> ReEnrollStudentAsync(Guid actor, Guid studentId, EnrollmentInput input, CancellationToken ct = default);
+    Task<Guid> ProgressStudentAsync(Guid actor, Guid studentId, StudentProgressionInput input, CancellationToken ct = default);
+    Task CompleteCurrentEnrollmentAsync(Guid actor, Guid studentId, CancellationToken ct = default);
+    Task GraduateStudentAsync(Guid actor, Guid studentId, CancellationToken ct = default);
     Task WithdrawStudentAsync(Guid actor, Guid studentId, CancellationToken ct = default);
     Task<StudentSensitiveInfo?> GetStudentSensitiveAsync(Guid actor, Guid studentId, CancellationToken ct = default);
     Task UpsertStudentSensitiveAsync(Guid actor, Guid studentId, StudentSensitiveInput input, CancellationToken ct = default);
@@ -120,6 +126,38 @@ public sealed class StudentLifecycleService(GiddyEduDbContext db, ITenantContext
         foreach (var enrollment in active) enrollment.Complete(input.PreviousEnrollmentStatus);
         var id = Guid.NewGuid(); db.Enrollments.Add(new Enrollment(id, RequireTenant(), studentId, input.AcademicYearId, input.ClassSectionId, input.EnrolledOn, clock.UtcNow)); await db.SaveChangesAsync(ct); return id;
     }
+
+    public async Task<Guid> ReEnrollStudentAsync(Guid actor, Guid studentId, EnrollmentInput input, CancellationToken ct = default)
+    {
+        await DemandAsync(actor, Permissions.StudentsManage, ct);
+        var student = await db.Students.SingleOrDefaultAsync(x => x.Id == studentId, ct) ?? throw new KeyNotFoundException("Student was not found.");
+        if (!await db.Enrollments.AnyAsync(x => x.StudentId == studentId, ct)) throw new InvalidOperationException("Returning-student registration requires an existing enrolment history.");
+        if (await db.Enrollments.AnyAsync(x => x.StudentId == studentId && x.Status == EnrollmentStatus.Active, ct)) throw new InvalidOperationException("The student already has an active enrolment.");
+        if (!await (from section in db.ClassSections join year in db.AcademicYears on section.AcademicYearId equals year.Id where section.Id == input.ClassSectionId && section.AcademicYearId == input.AcademicYearId && section.IsActive && year.Status == AcademicPeriodStatus.Active select section.Id).AnyAsync(ct)) throw new InvalidOperationException("Re-enrolment requires an active academic year and matching class section in the current tenant.");
+        student.ReactivateForReturn(); var id = Guid.NewGuid(); db.Enrollments.Add(new Enrollment(id, RequireTenant(), studentId, input.AcademicYearId, input.ClassSectionId, input.EnrolledOn, clock.UtcNow)); await db.SaveChangesAsync(ct); return id;
+    }
+
+    public async Task<Guid> ProgressStudentAsync(Guid actor, Guid studentId, StudentProgressionInput input, CancellationToken ct = default)
+    {
+        await DemandAsync(actor, Permissions.StudentsManage, ct); var tenantId = RequireTenant();
+        var student = await db.Students.SingleOrDefaultAsync(x => x.Id == studentId, ct) ?? throw new KeyNotFoundException("Student was not found.");
+        if (student.Status != StudentStatus.Active) throw new InvalidOperationException("Only active students can be progressed or transferred.");
+        var current = await db.Enrollments.SingleOrDefaultAsync(x => x.StudentId == studentId && x.Status == EnrollmentStatus.Active, ct) ?? throw new InvalidOperationException("The student does not have an active enrolment.");
+        var currentLevel = await db.ClassSections.Where(x => x.Id == current.ClassSectionId).Select(x => x.ClassLevelId).SingleAsync(ct);
+        var target = await (from section in db.ClassSections join year in db.AcademicYears on section.AcademicYearId equals year.Id where section.Id == input.ClassSectionId && section.AcademicYearId == input.AcademicYearId && section.IsActive && year.Status == AcademicPeriodStatus.Active select new { section.Id, section.ClassLevelId }).SingleOrDefaultAsync(ct) ?? throw new InvalidOperationException("The target must be an active class in the active academic year.");
+        if (input.Type == StudentProgressionType.Promotion && target.ClassLevelId == currentLevel) throw new InvalidOperationException("Promotion must move the student to a different class level.");
+        if (input.Type == StudentProgressionType.RepeatClass && target.ClassLevelId != currentLevel) throw new InvalidOperationException("Repeat-class processing must retain the current class level.");
+        if (input.Type == StudentProgressionType.Transfer && target.Id == current.ClassSectionId) throw new InvalidOperationException("Transfer must move the student to another class section.");
+        current.Complete(input.Type == StudentProgressionType.Transfer ? EnrollmentStatus.Transferred : EnrollmentStatus.Completed);
+        var nextId = Guid.NewGuid(); db.Enrollments.Add(new Enrollment(nextId, tenantId, studentId, input.AcademicYearId, input.ClassSectionId, input.EffectiveOn, clock.UtcNow));
+        var progressionId = Guid.NewGuid(); db.StudentProgressions.Add(new StudentProgression(progressionId, tenantId, studentId, current.Id, nextId, input.Type, input.Reason, actor, clock.UtcNow)); await db.SaveChangesAsync(ct); return progressionId;
+    }
+
+    public async Task CompleteCurrentEnrollmentAsync(Guid actor, Guid studentId, CancellationToken ct = default)
+    { await DemandAsync(actor, Permissions.StudentsManage, ct); if (!await db.Students.AnyAsync(x => x.Id == studentId && x.Status == StudentStatus.Active, ct)) throw new KeyNotFoundException("Active student was not found."); var enrollment = await db.Enrollments.SingleOrDefaultAsync(x => x.StudentId == studentId && x.Status == EnrollmentStatus.Active, ct) ?? throw new InvalidOperationException("The student does not have an active enrolment."); enrollment.Complete(EnrollmentStatus.Completed); await db.SaveChangesAsync(ct); }
+
+    public async Task GraduateStudentAsync(Guid actor, Guid studentId, CancellationToken ct = default)
+    { await DemandAsync(actor, Permissions.StudentsManage, ct); var student = await db.Students.SingleOrDefaultAsync(x => x.Id == studentId, ct) ?? throw new KeyNotFoundException("Student was not found."); var enrollment = await db.Enrollments.SingleOrDefaultAsync(x => x.StudentId == studentId && x.Status == EnrollmentStatus.Active, ct) ?? throw new InvalidOperationException("Graduation requires an active enrolment."); enrollment.Complete(EnrollmentStatus.Completed); student.Graduate(); await db.SaveChangesAsync(ct); }
 
     public async Task UpdateStudentAsync(Guid actor, Guid studentId, StudentProfileInput input, CancellationToken ct = default)
     { await DemandAsync(actor, Permissions.StudentsManage, ct); var student = await db.Students.SingleOrDefaultAsync(x => x.Id == studentId, ct) ?? throw new KeyNotFoundException("Student was not found."); student.UpdatePersonalInformation(input.FirstName, input.LastName, input.DateOfBirth, input.Email); await db.SaveChangesAsync(ct); }

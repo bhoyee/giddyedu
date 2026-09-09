@@ -3,6 +3,7 @@ using System;
 using GiddyEdu.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GiddyEdu.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(GiddyEduDbContext))]
-    partial class GiddyEduDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260909163359_AddStudentProgressions")]
+    partial class AddStudentProgressions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -379,101 +382,6 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                     b.ToTable("Positions", "giddyedu");
                 });
 
-            modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.StaffEmploymentRecord", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("EmployerName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<DateOnly?>("EndedOn")
-                        .HasColumnType("date");
-
-                    b.Property<string>("JobTitle")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)");
-
-                    b.Property<string>("ReasonForLeaving")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<Guid>("StaffId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateOnly>("StartedOn")
-                        .HasColumnType("date");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "StaffId", "StartedOn");
-
-                    b.ToTable("StaffEmploymentRecords", "giddyedu");
-                });
-
-            modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.StaffNextOfKin", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Address")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Email")
-                        .HasMaxLength(320)
-                        .HasColumnType("character varying(320)");
-
-                    b.Property<string>("FullName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<bool>("IsPrimary")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Phone")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<string>("Relationship")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("StaffId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "StaffId", "IsPrimary")
-                        .IsUnique()
-                        .HasFilter("\"IsPrimary\" = TRUE");
-
-                    b.ToTable("StaffNextOfKin", "giddyedu");
-                });
-
             modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.StaffProfile", b =>
                 {
                     b.Property<Guid>("Id")
@@ -557,49 +465,6 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_StaffProfiles_ExitDate", "\"ExitDate\" IS NULL OR \"ExitDate\" >= \"HireDate\"");
                         });
-                });
-
-            modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.StaffQualification", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateOnly>("AwardedOn")
-                        .HasColumnType("date");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("FieldOfStudy")
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)");
-
-                    b.Property<string>("Grade")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("Institution")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<Guid>("StaffId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "StaffId", "AwardedOn");
-
-                    b.ToTable("StaffQualifications", "giddyedu");
                 });
 
             modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.StaffSensitiveRecord", b =>
@@ -2443,26 +2308,6 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.StaffEmploymentRecord", b =>
-                {
-                    b.HasOne("GiddyEdu.Modules.Hr.Domain.StaffProfile", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "StaffId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.StaffNextOfKin", b =>
-                {
-                    b.HasOne("GiddyEdu.Modules.Hr.Domain.StaffProfile", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "StaffId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.StaffProfile", b =>
                 {
                     b.HasOne("GiddyEdu.Modules.Tenancy.Domain.Tenant", null)
@@ -2494,16 +2339,6 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                         .HasForeignKey("TenantId", "PositionId")
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
-                });
-
-            modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.StaffQualification", b =>
-                {
-                    b.HasOne("GiddyEdu.Modules.Hr.Domain.StaffProfile", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "StaffId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("GiddyEdu.Modules.Hr.Domain.StaffSensitiveRecord", b =>

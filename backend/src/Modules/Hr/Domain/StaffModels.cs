@@ -59,6 +59,53 @@ public sealed class StaffSensitiveRecord : ITenantOwned
     private static string? Limit(string? value, int max) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length > max ? throw new ArgumentException($"Value must not exceed {max} characters.") : value.Trim();
 }
 
+public sealed class StaffEmploymentRecord : ITenantOwned
+{
+    private StaffEmploymentRecord() { }
+    public StaffEmploymentRecord(Guid id, Guid tenantId, Guid staffId, string employerName, string jobTitle, DateOnly startedOn, DateOnly? endedOn, string? reasonForLeaving, DateTimeOffset createdAtUtc)
+    {
+        ValidateIds(id, tenantId, staffId); if (endedOn.HasValue && endedOn < startedOn) throw new ArgumentException("Employment end date cannot precede its start date.", nameof(endedOn));
+        Id = id; TenantId = tenantId; StaffId = staffId; EmployerName = Required(employerName, nameof(employerName), 200); JobTitle = Required(jobTitle, nameof(jobTitle), 150);
+        StartedOn = startedOn; EndedOn = endedOn; ReasonForLeaving = Optional(reasonForLeaving, 500); CreatedAtUtc = createdAtUtc;
+    }
+    public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid StaffId { get; private set; }
+    public string EmployerName { get; private set; } = null!; public string JobTitle { get; private set; } = null!; public DateOnly StartedOn { get; private set; }
+    public DateOnly? EndedOn { get; private set; } public string? ReasonForLeaving { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
+    private static void ValidateIds(params Guid[] ids) { if (ids.Any(x => x == Guid.Empty)) throw new ArgumentException("Employment record identifiers are required."); }
+    private static string Required(string value, string name, int max) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > max ? throw new ArgumentException($"{name} is required and must not exceed {max} characters.", name) : value.Trim();
+    private static string? Optional(string? value, int max) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length > max ? throw new ArgumentException($"Value must not exceed {max} characters.") : value.Trim();
+}
+
+public sealed class StaffQualification : ITenantOwned
+{
+    private StaffQualification() { }
+    public StaffQualification(Guid id, Guid tenantId, Guid staffId, string institution, string name, string? fieldOfStudy, DateOnly awardedOn, string? grade, DateTimeOffset createdAtUtc)
+    {
+        if (id == Guid.Empty || tenantId == Guid.Empty || staffId == Guid.Empty) throw new ArgumentException("Qualification identifiers are required.");
+        Id = id; TenantId = tenantId; StaffId = staffId; Institution = Required(institution, nameof(institution), 200); Name = Required(name, nameof(name), 200);
+        FieldOfStudy = Optional(fieldOfStudy, 150); AwardedOn = awardedOn; Grade = Optional(grade, 100); CreatedAtUtc = createdAtUtc;
+    }
+    public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid StaffId { get; private set; } public string Institution { get; private set; } = null!;
+    public string Name { get; private set; } = null!; public string? FieldOfStudy { get; private set; } public DateOnly AwardedOn { get; private set; } public string? Grade { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
+    private static string Required(string value, string name, int max) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > max ? throw new ArgumentException($"{name} is required and must not exceed {max} characters.", name) : value.Trim();
+    private static string? Optional(string? value, int max) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length > max ? throw new ArgumentException($"Value must not exceed {max} characters.") : value.Trim();
+}
+
+public sealed class StaffNextOfKin : ITenantOwned
+{
+    private StaffNextOfKin() { }
+    public StaffNextOfKin(Guid id, Guid tenantId, Guid staffId, string fullName, string relationship, string phone, string? email, string? address, bool isPrimary, DateTimeOffset createdAtUtc)
+    { if (id == Guid.Empty || tenantId == Guid.Empty || staffId == Guid.Empty) throw new ArgumentException("Next-of-kin identifiers are required."); Id = id; TenantId = tenantId; StaffId = staffId; CreatedAtUtc = createdAtUtc; Update(fullName, relationship, phone, email, address, isPrimary, createdAtUtc); }
+    public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid StaffId { get; private set; } public string FullName { get; private set; } = null!;
+    public string Relationship { get; private set; } = null!; public string Phone { get; private set; } = null!; public string? Email { get; private set; } public string? Address { get; private set; }
+    public bool IsPrimary { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; } public DateTimeOffset UpdatedAtUtc { get; private set; }
+    public void Update(string fullName, string relationship, string phone, string? email, string? address, bool isPrimary, DateTimeOffset now)
+    { FullName = Required(fullName, nameof(fullName), 200); Relationship = Required(relationship, nameof(relationship), 100); Phone = Required(phone, nameof(phone), 30); Email = Optional(email, 320); Address = Optional(address, 1000); IsPrimary = isPrimary; UpdatedAtUtc = now; }
+    public void RemovePrimary(DateTimeOffset now) { IsPrimary = false; UpdatedAtUtc = now; }
+    private static string Required(string value, string name, int max) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > max ? throw new ArgumentException($"{name} is required and must not exceed {max} characters.", name) : value.Trim();
+    private static string? Optional(string? value, int max) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length > max ? throw new ArgumentException($"Value must not exceed {max} characters.") : value.Trim();
+}
+
 public sealed class TeachingAssignment : ITenantOwned
 {
     private TeachingAssignment() { }
