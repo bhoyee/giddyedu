@@ -13,6 +13,26 @@ namespace GiddyEdu.UnitTests;
 public sealed class PhaseOneDomainTests
 {
     [Fact]
+    public void TenantSubscription_SuspensionRevokesAccessAndReactivationRestoresIt()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var subscription = new GiddyEdu.Modules.Subscriptions.Domain.TenantSubscription(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), now.AddDays(-1), now.AddDays(30));
+        subscription.Suspend(now);
+        Assert.False(subscription.IsActive);
+        Assert.Equal(GiddyEdu.Modules.Subscriptions.Domain.SubscriptionStatus.Suspended, subscription.Status);
+        subscription.Reactivate(now.AddYears(1), now.AddMinutes(1));
+        Assert.True(subscription.IsActive);
+        Assert.Equal(GiddyEdu.Modules.Subscriptions.Domain.SubscriptionStatus.Active, subscription.Status);
+    }
+
+    [Fact]
+    public void TenantSubscription_GracePeriodMustEndInFuture()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var subscription = new GiddyEdu.Modules.Subscriptions.Domain.TenantSubscription(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), now.AddDays(-1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => subscription.BeginGracePeriod(now, now));
+    }
+    [Fact]
     public void StaffEmploymentRecord_RejectsEndBeforeStart()
     {
         Assert.Throws<ArgumentException>(() => new StaffEmploymentRecord(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "School", "Teacher", new DateOnly(2024, 1, 1), new DateOnly(2023, 12, 31), null, DateTimeOffset.UtcNow));

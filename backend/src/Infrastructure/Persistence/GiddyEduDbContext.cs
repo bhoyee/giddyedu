@@ -191,7 +191,7 @@ public sealed class GiddyEduDbContext(
         b.Entity<Plan>(e => { e.ToTable("Plans"); e.HasKey(x => x.Id); e.HasIndex(x => x.Code).IsUnique(); });
         b.Entity<Feature>(e => { e.ToTable("Features"); e.HasKey(x => x.Id); e.HasIndex(x => x.Key).IsUnique(); });
         b.Entity<PlanEntitlement>(e => { e.ToTable("PlanEntitlements"); e.HasKey(x => new { x.PlanId, x.FeatureId }); });
-        b.Entity<TenantSubscription>(e => { e.ToTable("TenantSubscriptions"); e.HasKey(x => x.Id); e.HasIndex(x => new { x.TenantId, x.IsActive }); });
+        b.Entity<TenantSubscription>(e => { e.ToTable("TenantSubscriptions", table => { table.HasCheckConstraint("CK_TenantSubscriptions_Status", "\"Status\" BETWEEN 0 AND 4"); table.HasCheckConstraint("CK_TenantSubscriptions_StatusAccess", "(\"IsActive\" = TRUE AND \"Status\" IN (0, 1)) OR (\"IsActive\" = FALSE AND \"Status\" IN (2, 3, 4))"); }); e.HasKey(x => x.Id); e.HasIndex(x => new { x.TenantId, x.IsActive }); e.HasIndex(x => new { x.TenantId, x.Status }); });
         b.Entity<TenantEntitlementOverride>(e => { e.ToTable("TenantEntitlementOverrides"); e.HasKey(x => new { x.TenantId, x.FeatureId }); });
         b.Entity<CampusEntitlementOverride>(e => { e.ToTable("CampusEntitlementOverrides"); e.HasKey(x => new { x.TenantId, x.CampusId, x.FeatureId }); });
         b.Entity<AddOn>(e => { e.ToTable("AddOns"); e.HasKey(x => x.Id); e.HasIndex(x => x.Code).IsUnique(); });

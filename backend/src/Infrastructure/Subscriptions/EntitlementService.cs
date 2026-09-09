@@ -22,7 +22,11 @@ public sealed class EntitlementService(GiddyEduDbContext db, ITenantContext tena
         var tenantId = tenant.TenantId ?? throw new InvalidOperationException("Tenant context is required.");
         var feature = await db.Features.SingleOrDefaultAsync(x => x.Key == featureKey, cancellationToken);
         if (feature is null) return new(false, null);
-        var subscription = await db.TenantSubscriptions.Where(x => x.TenantId == tenantId && x.IsActive).OrderByDescending(x => x.StartsAtUtc).FirstOrDefaultAsync(cancellationToken);
+        var now = clock.UtcNow;
+        var subscription = await db.TenantSubscriptions.Where(x => x.TenantId == tenantId && x.IsActive &&
+            ((x.Status == SubscriptionStatus.Active && (!x.EndsAtUtc.HasValue || x.EndsAtUtc > now)) ||
+             (x.Status == SubscriptionStatus.GracePeriod && x.GraceEndsAtUtc.HasValue && x.GraceEndsAtUtc > now)))
+            .OrderByDescending(x => x.StartsAtUtc).FirstOrDefaultAsync(cancellationToken);
         if (subscription is null) return new(false, null);
         var plan = await db.PlanEntitlements.SingleOrDefaultAsync(x => x.PlanId == subscription.PlanId && x.FeatureId == feature.Id, cancellationToken);
         var tenantOverride = await db.TenantEntitlementOverrides.SingleOrDefaultAsync(x => x.FeatureId == feature.Id, cancellationToken);

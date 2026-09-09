@@ -51,6 +51,10 @@ public static class PhaseOneEndpoints
         var subscriptions = endpoints.MapGroup("/api/v1/subscriptions");
         subscriptions.MapGet("/current", GetCurrentSubscriptionAsync);
         subscriptions.MapPost("/{planCode}", SubscribeAsync);
+        subscriptions.MapPost("/{subscriptionId:guid}/renew", RenewSubscriptionAsync);
+        subscriptions.MapPost("/{subscriptionId:guid}/grace-period", BeginSubscriptionGracePeriodAsync);
+        subscriptions.MapPost("/{subscriptionId:guid}/suspend", SuspendSubscriptionAsync);
+        subscriptions.MapPost("/{subscriptionId:guid}/reactivate", ReactivateSubscriptionAsync);
 
         var schools = endpoints.MapGroup("/api/v1/schools");
         schools.MapGet("/current", GetSchoolProfileAsync);
@@ -259,6 +263,14 @@ public static class PhaseOneEndpoints
     { var subscription = await service.GetCurrentAsync(UserId(principal), ct); return subscription is null ? Results.NotFound() : Results.Ok(subscription); }
     private static async Task<IResult> SubscribeAsync(string planCode, ClaimsPrincipal principal, ISubscriptionManagementService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); var id = await service.SubscribeAsync(actor, planCode, ct); await audit.WriteAsync(actor, "Subscription.Start", "TenantSubscription", id.ToString(), "Succeeded", JsonSerializer.Serialize(new { planCode }), ct); return Results.Created($"/api/v1/subscriptions/{id}", new { id }); }
+    private static async Task<IResult> RenewSubscriptionAsync(Guid subscriptionId, SubscriptionRenewalInput input, ClaimsPrincipal principal, ISubscriptionManagementService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.RenewAsync(actor, subscriptionId, input, ct); await audit.WriteAsync(actor, "Subscription.Renew", "TenantSubscription", subscriptionId.ToString(), "Succeeded", JsonSerializer.Serialize(new { input.EndsAtUtc }), ct); return Results.NoContent(); }
+    private static async Task<IResult> BeginSubscriptionGracePeriodAsync(Guid subscriptionId, SubscriptionGracePeriodInput input, ClaimsPrincipal principal, ISubscriptionManagementService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.BeginGracePeriodAsync(actor, subscriptionId, input, ct); await audit.WriteAsync(actor, "Subscription.GracePeriodBegin", "TenantSubscription", subscriptionId.ToString(), "Succeeded", JsonSerializer.Serialize(new { input.GraceEndsAtUtc }), ct); return Results.NoContent(); }
+    private static async Task<IResult> SuspendSubscriptionAsync(Guid subscriptionId, ClaimsPrincipal principal, ISubscriptionManagementService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.SuspendAsync(actor, subscriptionId, ct); await audit.WriteAsync(actor, "Subscription.Suspend", "TenantSubscription", subscriptionId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
+    private static async Task<IResult> ReactivateSubscriptionAsync(Guid subscriptionId, SubscriptionReactivationInput input, ClaimsPrincipal principal, ISubscriptionManagementService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.ReactivateAsync(actor, subscriptionId, input, ct); await audit.WriteAsync(actor, "Subscription.Reactivate", "TenantSubscription", subscriptionId.ToString(), "Succeeded", JsonSerializer.Serialize(new { input.EndsAtUtc }), ct); return Results.NoContent(); }
 
     private static async Task<IResult> GetSchoolProfileAsync(ClaimsPrincipal principal, ISchoolAdministrationService service, CancellationToken ct)
     { var profile = await service.GetProfileAsync(UserId(principal), ct); return profile is null ? Results.NotFound() : Results.Ok(profile); }
