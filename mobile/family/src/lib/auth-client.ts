@@ -1,35 +1,37 @@
+import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 type Tokens = { accessToken: string; refreshToken: string; expiresAtUtc: string };
+export type CampusWorkspace = { campusId: string; campusName: string };
+export type SchoolWorkspace = { tenantId: string; tenantName: string; campuses: CampusWorkspace[] };
 export type AccessContext = { userId: string; tenantId: string; campusId: string | null; roles: string[]; audiences: string[]; defaultAudience: string; permissions: string[]; entitlements: Record<string, { enabled: boolean }> };
+export type FamilyStudent = { studentId: string; admissionNumber: string; firstName: string; lastName: string; relationship: string; isPrimaryGuardian: boolean; classSectionId: string | null; className: string | null };
+
 const tokenKey = 'giddyedu.family.tokens';
+const requestTimeoutMs = 20_000;
 let webTokens: Tokens | null = null;
+let refreshInFlight: Promise<Tokens> | null = null;
+const apiBase = (Constants.expoConfig?.extra?.apiBaseUrl as string | undefined) ?? process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://localhost:8080';
+const apiUrl = (path: string) => `${apiBase.replace(/\/$/, '')}${path}`;
 
-function apiUrl(path: string) {
-  const origin = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
-  if (!origin) throw new Error('EXPO_PUBLIC_API_URL is not configured.');
-  return `${origin}${path}`;
+async function request(path: string, init?: RequestInit) {
+  const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+  try { return await fetch(apiUrl(path), { ...init, signal: controller.signal }); }
+  catch (error) { throw new Error(error instanceof Error && error.name === 'AbortError' ? 'The connection is slow. Try again when your network improves.' : 'The server could not be reached. Check your connection.'); }
+  finally { clearTimeout(timeout); }
 }
-
 async function readTokens() { if (Platform.OS === 'web') return webTokens; const stored = await SecureStore.getItemAsync(tokenKey); if (!stored) return null; try { return JSON.parse(stored) as Tokens; } catch { await SecureStore.deleteItemAsync(tokenKey); return null; } }
 async function saveTokens(tokens: Tokens) { if (Platform.OS === 'web') webTokens = tokens; else await SecureStore.setItemAsync(tokenKey, JSON.stringify(tokens), { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }); }
-export async function signOut() { webTokens = null; if (Platform.OS !== 'web') await SecureStore.deleteItemAsync(tokenKey); }
-export async function hasStoredSession() { return (await readTokens()) !== null; }
+async function clearSession() { webTokens = null; if (Platform.OS !== 'web') await SecureStore.deleteItemAsync(tokenKey); }
+async function refresh(tokens: Tokens) { if (!refreshInFlight) refreshInFlight = (async () => { const response = await request('/api/v1/auth/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: tokens.refreshToken }) }); if (!response.ok) { await clearSession(); throw new Error('Your session has expired. Sign in again.'); } const renewed = await response.json() as Tokens; await saveTokens(renewed); return renewed; })().finally(() => { refreshInFlight = null; }); return refreshInFlight; }
 
-export async function signIn(email: string, password: string, tenantId: string, campusId?: string) {
-  const response = await fetch(apiUrl('/api/v1/auth/login'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, tenantId, campusId: campusId || null }) });
-  if (!response.ok) throw new Error(response.status === 401 ? 'Check your email, password, and confirmed account.' : 'Sign-in failed.');
-  const tokens = await response.json() as Tokens; await saveTokens(tokens); return tokens;
-}
-
-export async function authenticatedFetch(path: string, init?: RequestInit) {
-  let tokens = await readTokens(); if (!tokens) throw new Error('Authentication is required.');
-  let response = await fetch(apiUrl(path), { ...init, headers: { ...init?.headers, Authorization: `Bearer ${tokens.accessToken}` } });
-  if (response.status !== 401) return response;
-  const refresh = await fetch(apiUrl('/api/v1/auth/refresh'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: tokens.refreshToken }) });
-  if (!refresh.ok) { await signOut(); throw new Error('Your session has expired.'); }
-  tokens = await refresh.json() as Tokens; await saveTokens(tokens);
-  response = await fetch(apiUrl(path), { ...init, headers: { ...init?.headers, Authorization: `Bearer ${tokens.accessToken}` } }); return response;
-}
+export async function hasStoredSession() { return Boolean(await readTokens()); }
+export async function discoverWorkspaces(email: string, password: string) { const response = await request('/api/v1/auth/workspaces', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }); if (!response.ok) throw new Error(response.status === 401 ? 'Check your email, password, and confirmed account.' : 'School workspaces could not be loaded.'); return response.json() as Promise<SchoolWorkspace[]>; }
+export async function getWorkspaces() { const response = await authenticatedFetch('/api/v1/auth/workspaces'); if (!response.ok) throw new Error('School workspaces could not be loaded.'); return response.json() as Promise<SchoolWorkspace[]>; }
+export async function signIn(email: string, password: string, tenantId: string, campusId?: string) { const response = await request('/api/v1/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, tenantId, campusId: campusId || null }) }); if (!response.ok) throw new Error(response.status === 401 ? 'Check your credentials and confirmed account.' : 'Sign-in failed.'); const tokens = await response.json() as Tokens; await saveTokens(tokens); return tokens; }
+export async function switchWorkspace(tenantId: string, campusId?: string) { let current = await readTokens(); if (!current) throw new Error('Authentication is required.'); if (new Date(current.expiresAtUtc).getTime() <= Date.now() + 30_000) current = await refresh(current); const response = await request('/api/v1/auth/switch-workspace', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${current.accessToken}` }, body: JSON.stringify({ tenantId, campusId: campusId || null, refreshToken: current.refreshToken }) }); if (!response.ok) throw new Error('You are not authorised for that school or campus.'); const tokens = await response.json() as Tokens; await saveTokens(tokens); }
+export async function signOut() { const tokens = await readTokens(); if (tokens) { try { await request('/api/v1/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokens.accessToken}` }, body: JSON.stringify({ refreshToken: tokens.refreshToken }) }); } catch { /* Local credential removal remains authoritative on unreliable networks. */ } } await clearSession(); }
+export async function authenticatedFetch(path: string, init?: RequestInit) { let tokens = await readTokens(); if (!tokens) throw new Error('Authentication is required.'); if (new Date(tokens.expiresAtUtc).getTime() <= Date.now() + 30_000) tokens = await refresh(tokens); const send = () => request(path, { ...init, headers: { ...init?.headers, Authorization: `Bearer ${tokens!.accessToken}` } }); let response = await send(); if (response.status !== 401) return response; tokens = await refresh(tokens); return send(); }
 export async function getAccessContext() { const response = await authenticatedFetch('/api/v1/access/me'); if (!response.ok) throw new Error('Your family access could not be loaded.'); return response.json() as Promise<AccessContext>; }
+export async function getFamilyStudents() { const response = await authenticatedFetch('/api/v1/portal/family/students'); if (!response.ok) throw new Error('Linked children could not be loaded.'); return response.json() as Promise<FamilyStudent[]>; }

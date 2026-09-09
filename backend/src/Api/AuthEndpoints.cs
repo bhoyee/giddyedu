@@ -20,6 +20,10 @@ public static class AuthEndpoints
     public sealed record RegisterRequest(string SchoolName, string SchoolSlug, string CampusName, string DisplayName, string Email, string Password);
     public sealed record LoginRequest(string Email, string Password, Guid TenantId, Guid? CampusId);
     public sealed record PlatformLoginRequest(string Email, string Password);
+    public sealed record WorkspaceDiscoveryRequest(string Email, string Password);
+    public sealed record SwitchWorkspaceRequest(Guid TenantId, Guid? CampusId, string RefreshToken);
+    public sealed record CampusWorkspace(Guid CampusId, string CampusName);
+    public sealed record SchoolWorkspace(Guid TenantId, string TenantName, IReadOnlyList<CampusWorkspace> Campuses);
     public sealed record RefreshRequest(string RefreshToken);
     public sealed record ConfirmEmailRequest(string Email, string Token);
     public sealed record ForgotPasswordRequest(string Email);
@@ -31,10 +35,14 @@ public static class AuthEndpoints
         group.MapPost("/register", RegisterAsync);
         group.MapPost("/login", LoginAsync);
         group.MapPost("/platform/login", PlatformLoginAsync);
+        group.MapPost("/workspaces", DiscoverWorkspacesAsync);
         group.MapPost("/refresh", RefreshAsync);
         group.MapPost("/confirm-email", ConfirmEmailAsync);
         group.MapPost("/forgot-password", ForgotPasswordAsync);
         group.MapPost("/reset-password", ResetPasswordAsync);
+        endpoints.MapPost("/api/v1/auth/switch-workspace", SwitchWorkspaceAsync).RequireAuthorization().RequireRateLimiting("auth");
+        endpoints.MapGet("/api/v1/auth/workspaces", ListWorkspacesAsync).RequireAuthorization();
+        endpoints.MapPost("/api/v1/auth/logout", LogoutAsync).RequireAuthorization().RequireRateLimiting("auth");
         return endpoints;
     }
 
@@ -103,6 +111,69 @@ public static class AuthEndpoints
         if (user is null || !user.IsActive || !user.EmailConfirmed || !await users.CheckPasswordAsync(user, request.Password) || !await users.IsInRoleAsync(user, GlobalRoles.PlatformAdministrator))
             return Results.Unauthorized();
         return Results.Ok(await IssuePlatformTokensAsync(user.Id, db, configuration, clock, cancellationToken));
+    }
+
+    private static async Task<IResult> DiscoverWorkspacesAsync(WorkspaceDiscoveryRequest request, UserManager<PlatformUser> users, GiddyEduDbContext db, CancellationToken cancellationToken)
+    {
+        var user = await users.FindByEmailAsync(request.Email.Trim());
+        if (user is null || !user.IsActive || !user.EmailConfirmed || !await users.CheckPasswordAsync(user, request.Password)) return Results.Unauthorized();
+        return Results.Ok(await LoadWorkspacesAsync(user.Id, db, cancellationToken));
+    }
+
+    private static async Task<IResult> ListWorkspacesAsync(ClaimsPrincipal principal, GiddyEduDbContext db, CancellationToken cancellationToken)
+    {
+        var userValue = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userValue, out var userId)) return Results.Forbid();
+        return Results.Ok(await LoadWorkspacesAsync(userId, db, cancellationToken));
+    }
+
+    public static async Task<IReadOnlyList<SchoolWorkspace>> LoadWorkspacesAsync(Guid userId, GiddyEduDbContext db, CancellationToken cancellationToken)
+    {
+        var schools = await (from membership in db.TenantMemberships.IgnoreQueryFilters().AsNoTracking()
+                             join school in db.Tenants.IgnoreQueryFilters().AsNoTracking() on membership.TenantId equals school.Id
+                             where membership.UserId == userId && membership.IsActive && school.IsActive
+                             orderby school.Name
+                             select new { school.Id, school.Name }).ToListAsync(cancellationToken);
+        var tenantIds = schools.Select(x => x.Id).ToArray();
+        var campuses = await db.Campuses.IgnoreQueryFilters().AsNoTracking()
+            .Where(x => tenantIds.Contains(x.TenantId) && x.IsActive)
+            .OrderBy(x => x.Name)
+            .Select(x => new { x.TenantId, Workspace = new CampusWorkspace(x.Id, x.Name) })
+            .ToListAsync(cancellationToken);
+
+        return schools.Select(school => new SchoolWorkspace(
+            school.Id,
+            school.Name,
+            campuses.Where(campus => campus.TenantId == school.Id).Select(campus => campus.Workspace).ToArray()))
+            .ToArray();
+    }
+
+    private static async Task<IResult> SwitchWorkspaceAsync(SwitchWorkspaceRequest request, ClaimsPrincipal principal, GiddyEduDbContext db, ITenantContextSetter tenant, IConfiguration configuration, IClock clock, CancellationToken cancellationToken)
+    {
+        var userValue = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userValue, out var userId)) return Results.Forbid();
+        var membership = await db.TenantMemberships.IgnoreQueryFilters().AnyAsync(x => x.TenantId == request.TenantId && x.UserId == userId && x.IsActive, cancellationToken);
+        if (!membership) return Results.Forbid();
+        if (request.CampusId.HasValue && !await db.Campuses.IgnoreQueryFilters().AnyAsync(x => x.TenantId == request.TenantId && x.Id == request.CampusId && x.IsActive, cancellationToken)) return Results.Forbid();
+        var tokenHash = Hash(request.RefreshToken);
+        var currentToken = await db.RefreshTokens.IgnoreQueryFilters().SingleOrDefaultAsync(x => x.UserId == userId && x.TokenHash == tokenHash, cancellationToken);
+        if (currentToken is null || !currentToken.IsUsable(clock.UtcNow)) return Results.Unauthorized();
+        currentToken.Revoke(clock.UtcNow);
+        tenant.Set(request.TenantId, request.CampusId);
+        try { return Results.Ok(await IssueTokensAsync(userId, request.TenantId, request.CampusId, db, configuration, clock, cancellationToken)); }
+        finally { tenant.Clear(); }
+    }
+
+    private static async Task<IResult> LogoutAsync(RefreshRequest request, ClaimsPrincipal principal, GiddyEduDbContext db, IClock clock, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return Results.Forbid();
+        var hash = Hash(request.RefreshToken);
+        var tenantToken = await db.RefreshTokens.IgnoreQueryFilters().SingleOrDefaultAsync(x => x.TokenHash == hash && x.UserId == userId, cancellationToken);
+        if (tenantToken is not null) tenantToken.Revoke(clock.UtcNow);
+        var platformToken = await db.PlatformRefreshTokens.SingleOrDefaultAsync(x => x.TokenHash == hash && x.UserId == userId, cancellationToken);
+        if (platformToken is not null) platformToken.Revoke(clock.UtcNow);
+        if (tenantToken is not null || platformToken is not null) await db.SaveChangesAsync(cancellationToken);
+        return Results.NoContent();
     }
 
     private static async Task<IResult> RefreshAsync(RefreshRequest request, GiddyEduDbContext db, ITenantContextSetter tenant, IConfiguration configuration, IClock clock, CancellationToken cancellationToken)
