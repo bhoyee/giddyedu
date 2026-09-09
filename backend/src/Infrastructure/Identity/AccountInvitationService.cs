@@ -9,6 +9,7 @@ using GiddyEdu.Infrastructure.Persistence;
 using GiddyEdu.Infrastructure.Platform;
 using GiddyEdu.Modules.Identity;
 using GiddyEdu.Modules.Identity.Domain;
+using GiddyEdu.Modules.Platform.Domain;
 using GiddyEdu.Modules.Tenancy.Domain;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
@@ -78,7 +79,9 @@ public sealed class AccountInvitationService(GiddyEduDbContext db, ITenantContex
             await LinkTargetAsync(invitation, user.Id, ct);
             var roleId = await EnsureRoleAsync(invitation.TargetType, ct);
             if (!await db.TenantMembershipRoles.AnyAsync(x => x.MembershipId == membership.Id && x.RoleId == roleId, ct)) db.TenantMembershipRoles.Add(new TenantMembershipRole(invitation.TenantId, membership.Id, roleId));
-            invitation.Accept(clock.UtcNow); await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct); return invitation.TenantId;
+            invitation.Accept(clock.UtcNow);
+            db.AuditRecords.Add(new AuditRecord(Guid.NewGuid(), invitation.TenantId, user.Id, "AccountInvitation.Accept", "AccountInvitation", invitation.Id.ToString(), "Succeeded", clock.UtcNow, JsonSerializer.Serialize(new { invitation.TargetType, invitation.TargetId })));
+            await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct); return invitation.TenantId;
         }
         finally { tenantSetter.Clear(); }
     }

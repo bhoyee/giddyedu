@@ -120,9 +120,46 @@ public sealed class PhaseOneIsolationTests
     public async Task ImportOperations_AreTenantIsolated()
     {
         await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
-        fixture.Db.ImportOperations.Add(new ImportOperation(Guid.NewGuid(), fixture.TenantA, "Applicants", Guid.NewGuid(), fixture.Clock.UtcNow));
+        var applicantImportId = Guid.NewGuid(); var studentImportId = Guid.NewGuid(); var guardianImportId = Guid.NewGuid();
+        fixture.Db.ImportOperations.AddRange(
+            new ImportOperation(applicantImportId, fixture.TenantA, "Applicants", Guid.NewGuid(), fixture.Clock.UtcNow),
+            new ImportOperation(studentImportId, fixture.TenantA, "Students", Guid.NewGuid(), fixture.Clock.UtcNow),
+            new ImportOperation(guardianImportId, fixture.TenantA, "Guardians", Guid.NewGuid(), fixture.Clock.UtcNow));
         await fixture.Db.SaveChangesAsync(); fixture.Db.ChangeTracker.Clear(); fixture.Context.Set(fixture.TenantB, null);
         Assert.Empty(await fixture.Db.ImportOperations.ToListAsync());
+        var applicants = new ApplicantImportService(fixture.Db, fixture.Context, new AllowedAccess(), null!, fixture.Clock, null!);
+        var profiles = new ProfileImportService(fixture.Db, fixture.Context, new AllowedAccess(), null!, fixture.Clock, null!);
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => applicants.GetAsync(Guid.NewGuid(), applicantImportId));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => profiles.GetStudentsAsync(Guid.NewGuid(), studentImportId));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => profiles.GetGuardiansAsync(Guid.NewGuid(), guardianImportId));
+    }
+
+    [Fact]
+    public async Task Exports_RequireManageAccess_AreTenantIsolated_AndExcludeSensitiveFields()
+    {
+        await using var fixture = await Fixture.CreateAsync(); var now = fixture.Clock.UtcNow;
+        fixture.Context.Set(fixture.TenantA, null);
+        var applicantId = Guid.NewGuid(); var studentId = Guid.NewGuid();
+        fixture.Db.Applicants.Add(new Applicant(applicantId, fixture.TenantA, "APP-A", "Ada", "Applicant", new(2015, 1, 1), "ada@example.test", "0801", null, null, now));
+        fixture.Db.Students.Add(new Student(studentId, fixture.TenantA, "STU-A", "Sam", "Student", new(2014, 1, 1), null, now, "sam@example.test"));
+        fixture.Db.Guardians.Add(new Guardian(Guid.NewGuid(), fixture.TenantA, "Grace", "Guardian", "0802", "grace@example.test", now));
+        fixture.Db.ApplicantSensitiveRecords.Add(new ApplicantSensitiveRecord(fixture.TenantA, applicantId, "SECRET-APPLICANT-ADDRESS", "SECRET-MEDICAL", "SECRET-ALLERGY", "SECRET-SEN", now));
+        fixture.Db.StudentSensitiveRecords.Add(new StudentSensitiveRecord(fixture.TenantA, studentId, "SECRET-STUDENT-ADDRESS", "SECRET-STUDENT-MEDICAL", null, null, "SECRET-PRIVATE-NOTE", now));
+        await fixture.Db.SaveChangesAsync();
+        fixture.Context.Set(fixture.TenantB, null);
+        fixture.Db.Students.Add(new Student(Guid.NewGuid(), fixture.TenantB, "STU-B", "Other", "Tenant", new(2014, 1, 1), null, now)); await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear(); fixture.Context.Set(fixture.TenantA, null);
+
+        var exports = new DataPortabilityService(fixture.Db, new AllowedAccess());
+        var applicantCsv = await exports.ExportApplicantsAsync(Guid.NewGuid()); var studentCsv = await exports.ExportStudentsAsync(Guid.NewGuid()); var guardianCsv = await exports.ExportGuardiansAsync(Guid.NewGuid());
+
+        Assert.Contains("APP-A", applicantCsv); Assert.Contains("STU-A", studentCsv); Assert.Contains("Grace", guardianCsv); Assert.DoesNotContain("STU-B", studentCsv);
+        var combined = applicantCsv + studentCsv + guardianCsv;
+        Assert.DoesNotContain("SECRET-", combined, StringComparison.Ordinal);
+        var denied = new DataPortabilityService(fixture.Db, new DeniedAccess());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => denied.ExportApplicantsAsync(Guid.NewGuid()));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => denied.ExportStudentsAsync(Guid.NewGuid()));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => denied.ExportGuardiansAsync(Guid.NewGuid()));
     }
 
     [Fact]

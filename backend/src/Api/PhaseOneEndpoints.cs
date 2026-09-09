@@ -33,11 +33,11 @@ public static class PhaseOneEndpoints
         endpoints.MapPost("/api/v1/public/admissions/offers/{token}/response", RespondToOfferAsync).AllowAnonymous().RequireRateLimiting("auth");
         endpoints.MapGet("/api/v1/access/me", GetAccessContextAsync);
         endpoints.MapGet("/api/v1/platform/admin/tenants", ListPlatformTenantsAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator));
-        endpoints.MapPut("/api/v1/platform/admin/tenants/{tenantId:guid}/status", SetPlatformTenantStatusAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator));
-        endpoints.MapPost("/api/v1/platform/admin/tenants/{tenantId:guid}/subscription", ProvisionPlatformSubscriptionAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator));
-        endpoints.MapPost("/api/v1/platform/admin/tenants/{tenantId:guid}/subscriptions/{subscriptionId:guid}/grace-period", BeginPlatformSubscriptionGraceAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator));
-        endpoints.MapPost("/api/v1/platform/admin/tenants/{tenantId:guid}/subscriptions/{subscriptionId:guid}/suspend", SuspendPlatformSubscriptionAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator));
-        endpoints.MapPost("/api/v1/platform/admin/tenants/{tenantId:guid}/subscriptions/{subscriptionId:guid}/reactivate", ReactivatePlatformSubscriptionAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator));
+        endpoints.MapPut("/api/v1/platform/admin/tenants/{tenantId:guid}/status", SetPlatformTenantStatusAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator)).RequireRateLimiting("administration");
+        endpoints.MapPost("/api/v1/platform/admin/tenants/{tenantId:guid}/subscription", ProvisionPlatformSubscriptionAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator)).RequireRateLimiting("administration");
+        endpoints.MapPost("/api/v1/platform/admin/tenants/{tenantId:guid}/subscriptions/{subscriptionId:guid}/grace-period", BeginPlatformSubscriptionGraceAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator)).RequireRateLimiting("administration");
+        endpoints.MapPost("/api/v1/platform/admin/tenants/{tenantId:guid}/subscriptions/{subscriptionId:guid}/suspend", SuspendPlatformSubscriptionAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator)).RequireRateLimiting("administration");
+        endpoints.MapPost("/api/v1/platform/admin/tenants/{tenantId:guid}/subscriptions/{subscriptionId:guid}/reactivate", ReactivatePlatformSubscriptionAsync).RequireAuthorization(policy => policy.RequireRole(GlobalRoles.PlatformAdministrator)).RequireRateLimiting("administration");
         endpoints.MapGet("/api/v1/portal/dashboard", GetPortalDashboardAsync);
         endpoints.MapGet("/api/v1/portal/teaching/classes", GetTeachingClassesAsync);
         endpoints.MapGet("/api/v1/portal/family/students", GetFamilyStudentsAsync);
@@ -47,7 +47,7 @@ public static class PhaseOneEndpoints
         endpoints.MapGet("/api/v1/portal/commercial", GetCommercialOverviewAsync);
         endpoints.MapPost("/api/v1/account-invitations", CreateAccountInvitationAsync);
         endpoints.MapPost("/api/v1/account-invitations/accept", AcceptAccountInvitationAsync).AllowAnonymous().RequireRateLimiting("auth");
-        var documents = endpoints.MapGroup("/api/v1/documents");
+        var documents = endpoints.MapGroup("/api/v1/documents").RequireRateLimiting("data-transfer");
         documents.MapGet("/{entityType}/{entityId:guid}", ListDocumentsAsync);
         documents.MapPost("/{entityType}/{entityId:guid}/uploads", BeginDocumentUploadAsync);
         documents.MapPost("/{fileId:guid}/complete", CompleteDocumentUploadAsync);
@@ -90,18 +90,18 @@ public static class PhaseOneEndpoints
         hr.MapPut("/staff/{staffId:guid}", UpdateStaffAsync);
         hr.MapPut("/staff/{staffId:guid}/status", SetStaffStatusAsync);
         hr.MapPut("/staff/{staffId:guid}/user", LinkStaffUserAsync);
-        hr.MapGet("/staff/{staffId:guid}/sensitive", GetStaffSensitiveAsync);
-        hr.MapPut("/staff/{staffId:guid}/sensitive", UpsertStaffSensitiveAsync);
+        hr.MapGet("/staff/{staffId:guid}/sensitive", GetStaffSensitiveAsync).RequireRateLimiting("data-transfer");
+        hr.MapPut("/staff/{staffId:guid}/sensitive", UpsertStaffSensitiveAsync).RequireRateLimiting("data-transfer");
         hr.MapGet("/staff/{staffId:guid}/employment", ListStaffEmploymentAsync);
         hr.MapPost("/staff/{staffId:guid}/employment", AddStaffEmploymentAsync);
         hr.MapDelete("/staff/{staffId:guid}/employment/{recordId:guid}", DeleteStaffEmploymentAsync);
         hr.MapGet("/staff/{staffId:guid}/qualifications", ListStaffQualificationsAsync);
         hr.MapPost("/staff/{staffId:guid}/qualifications", AddStaffQualificationAsync);
         hr.MapDelete("/staff/{staffId:guid}/qualifications/{qualificationId:guid}", DeleteStaffQualificationAsync);
-        hr.MapGet("/staff/{staffId:guid}/next-of-kin", ListStaffNextOfKinAsync);
-        hr.MapPost("/staff/{staffId:guid}/next-of-kin", AddStaffNextOfKinAsync);
-        hr.MapPut("/staff/{staffId:guid}/next-of-kin/{contactId:guid}", UpdateStaffNextOfKinAsync);
-        hr.MapDelete("/staff/{staffId:guid}/next-of-kin/{contactId:guid}", DeleteStaffNextOfKinAsync);
+        hr.MapGet("/staff/{staffId:guid}/next-of-kin", ListStaffNextOfKinAsync).RequireRateLimiting("data-transfer");
+        hr.MapPost("/staff/{staffId:guid}/next-of-kin", AddStaffNextOfKinAsync).RequireRateLimiting("data-transfer");
+        hr.MapPut("/staff/{staffId:guid}/next-of-kin/{contactId:guid}", UpdateStaffNextOfKinAsync).RequireRateLimiting("data-transfer");
+        hr.MapDelete("/staff/{staffId:guid}/next-of-kin/{contactId:guid}", DeleteStaffNextOfKinAsync).RequireRateLimiting("data-transfer");
         hr.MapGet("/teaching-assignments", ListTeachingAssignmentsAsync);
         hr.MapPost("/teaching-assignments", CreateTeachingAssignmentAsync);
         hr.MapDelete("/teaching-assignments/{assignmentId:guid}", DeleteTeachingAssignmentAsync);
@@ -110,8 +110,8 @@ public static class PhaseOneEndpoints
         admissions.MapGet("/applicants", ListApplicantsAsync);
         admissions.MapPost("/applicants", CreateApplicantAsync);
         admissions.MapPut("/applicants/{applicantId:guid}/status", TransitionApplicantAsync);
-        admissions.MapGet("/applicants/{applicantId:guid}/sensitive", GetApplicantSensitiveAsync);
-        admissions.MapPut("/applicants/{applicantId:guid}/sensitive", UpsertApplicantSensitiveAsync);
+        admissions.MapGet("/applicants/{applicantId:guid}/sensitive", GetApplicantSensitiveAsync).RequireRateLimiting("data-transfer");
+        admissions.MapPut("/applicants/{applicantId:guid}/sensitive", UpsertApplicantSensitiveAsync).RequireRateLimiting("data-transfer");
         admissions.MapGet("/applicants/{applicantId:guid}/review", GetAdmissionReviewAsync);
         admissions.MapPut("/applicants/{applicantId:guid}/review", UpsertAdmissionReviewAsync);
         admissions.MapGet("/applicants/{applicantId:guid}/interviews", ListAdmissionInterviewsAsync);
@@ -123,12 +123,12 @@ public static class PhaseOneEndpoints
         admissions.MapPost("/applicants/{applicantId:guid}/reject", RejectApplicantAsync);
         admissions.MapPost("/applicants/bulk/offer", IssueBulkAdmissionOffersAsync);
         admissions.MapPost("/applicants/bulk/reject", RejectBulkApplicantsAsync);
-        admissions.MapGet("/applicants/export.csv", ExportApplicantsAsync);
-        admissions.MapPost("/applicants/imports/uploads", BeginApplicantImportAsync);
-        admissions.MapPost("/applicants/imports/{operationId:guid}/complete", CompleteApplicantImportAsync);
+        admissions.MapGet("/applicants/export.csv", ExportApplicantsAsync).RequireRateLimiting("data-transfer");
+        admissions.MapPost("/applicants/imports/uploads", BeginApplicantImportAsync).RequireRateLimiting("data-transfer");
+        admissions.MapPost("/applicants/imports/{operationId:guid}/complete", CompleteApplicantImportAsync).RequireRateLimiting("data-transfer");
         admissions.MapGet("/applicants/imports/{operationId:guid}", GetApplicantImportAsync);
         admissions.MapGet("/applicants/imports", ListApplicantImportsAsync);
-        admissions.MapGet("/applicants/imports/{operationId:guid}/errors", DownloadApplicantImportErrorsAsync);
+        admissions.MapGet("/applicants/imports/{operationId:guid}/errors", DownloadApplicantImportErrorsAsync).RequireRateLimiting("data-transfer");
         var students = endpoints.MapGroup("/api/v1/students");
         students.MapGet("/", ListStudentsAsync);
         students.MapGet("/{studentId:guid}", GetStudentAsync);
@@ -139,26 +139,26 @@ public static class PhaseOneEndpoints
         students.MapPost("/{studentId:guid}/complete-enrolment", CompleteStudentEnrollmentAsync);
         students.MapPost("/{studentId:guid}/graduate", GraduateStudentAsync);
         students.MapPost("/{studentId:guid}/withdraw", WithdrawStudentAsync);
-        students.MapGet("/{studentId:guid}/sensitive", GetStudentSensitiveAsync);
-        students.MapPut("/{studentId:guid}/sensitive", UpsertStudentSensitiveAsync);
+        students.MapGet("/{studentId:guid}/sensitive", GetStudentSensitiveAsync).RequireRateLimiting("data-transfer");
+        students.MapPut("/{studentId:guid}/sensitive", UpsertStudentSensitiveAsync).RequireRateLimiting("data-transfer");
         students.MapPost("/{studentId:guid}/guardians", LinkGuardianAsync);
-        students.MapGet("/export.csv", ExportStudentsAsync);
-        students.MapPost("/imports/uploads", BeginStudentImportAsync);
-        students.MapPost("/imports/{operationId:guid}/complete", CompleteStudentImportAsync);
+        students.MapGet("/export.csv", ExportStudentsAsync).RequireRateLimiting("data-transfer");
+        students.MapPost("/imports/uploads", BeginStudentImportAsync).RequireRateLimiting("data-transfer");
+        students.MapPost("/imports/{operationId:guid}/complete", CompleteStudentImportAsync).RequireRateLimiting("data-transfer");
         students.MapGet("/imports/{operationId:guid}", GetStudentImportAsync);
         students.MapGet("/imports", ListStudentImportsAsync);
-        students.MapGet("/imports/{operationId:guid}/errors", DownloadStudentImportErrorsAsync);
+        students.MapGet("/imports/{operationId:guid}/errors", DownloadStudentImportErrorsAsync).RequireRateLimiting("data-transfer");
         var guardians = endpoints.MapGroup("/api/v1/guardians");
         guardians.MapGet("/", ListGuardiansAsync);
         guardians.MapGet("/{guardianId:guid}", GetGuardianAsync);
         guardians.MapPost("/", CreateGuardianAsync);
         guardians.MapPut("/{guardianId:guid}", UpdateGuardianAsync);
-        guardians.MapGet("/export.csv", ExportGuardiansAsync);
-        guardians.MapPost("/imports/uploads", BeginGuardianImportAsync);
-        guardians.MapPost("/imports/{operationId:guid}/complete", CompleteGuardianImportAsync);
+        guardians.MapGet("/export.csv", ExportGuardiansAsync).RequireRateLimiting("data-transfer");
+        guardians.MapPost("/imports/uploads", BeginGuardianImportAsync).RequireRateLimiting("data-transfer");
+        guardians.MapPost("/imports/{operationId:guid}/complete", CompleteGuardianImportAsync).RequireRateLimiting("data-transfer");
         guardians.MapGet("/imports/{operationId:guid}", GetGuardianImportAsync);
         guardians.MapGet("/imports", ListGuardianImportsAsync);
-        guardians.MapGet("/imports/{operationId:guid}/errors", DownloadGuardianImportErrorsAsync);
+        guardians.MapGet("/imports/{operationId:guid}/errors", DownloadGuardianImportErrorsAsync).RequireRateLimiting("data-transfer");
         return endpoints;
     }
 
@@ -318,8 +318,8 @@ public static class PhaseOneEndpoints
     { var actor = UserId(principal); await service.SetStatusAsync(actor, staffId, input, ct); await audit.WriteAsync(actor, "Staff.StatusChange", "StaffProfile", staffId.ToString(), "Succeeded", JsonSerializer.Serialize(new { input.Status }), ct); return Results.NoContent(); }
     private static async Task<IResult> LinkStaffUserAsync(Guid staffId, StaffUserLinkInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); await service.LinkUserAsync(actor, staffId, input, ct); await audit.WriteAsync(actor, "Staff.LinkUser", "StaffProfile", staffId.ToString(), "Succeeded", JsonSerializer.Serialize(new { input.UserId }), ct); return Results.NoContent(); }
-    private static async Task<IResult> GetStaffSensitiveAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct)
-    { var result = await service.GetSensitiveAsync(UserId(principal), staffId, ct); return result is null ? Results.NotFound() : Results.Ok(result); }
+    private static async Task<IResult> GetStaffSensitiveAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); var result = await service.GetSensitiveAsync(actor, staffId, ct); await audit.WriteAsync(actor, "Staff.SensitiveRead", "StaffProfile", staffId.ToString(), "Succeeded", null, ct); return result is null ? Results.NotFound() : Results.Ok(result); }
     private static async Task<IResult> UpsertStaffSensitiveAsync(Guid staffId, StaffSensitiveInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); await service.UpsertSensitiveAsync(actor, staffId, input, ct); await audit.WriteAsync(actor, "Staff.SensitiveUpdate", "StaffProfile", staffId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
     private static async Task<IResult> ListStaffEmploymentAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListEmploymentAsync(UserId(principal), staffId, ct));
@@ -328,7 +328,7 @@ public static class PhaseOneEndpoints
     private static async Task<IResult> ListStaffQualificationsAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListQualificationsAsync(UserId(principal), staffId, ct));
     private static async Task<IResult> AddStaffQualificationAsync(Guid staffId, StaffQualificationInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) => await CreatedHrAsync(await service.AddQualificationAsync(UserId(principal), staffId, input, ct), "StaffQualification", "Staff.QualificationAdd", principal, audit, ct);
     private static async Task<IResult> DeleteStaffQualificationAsync(Guid staffId, Guid qualificationId, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) { var actor = UserId(principal); await service.DeleteQualificationAsync(actor, staffId, qualificationId, ct); await audit.WriteAsync(actor, "Staff.QualificationDelete", "StaffQualification", qualificationId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
-    private static async Task<IResult> ListStaffNextOfKinAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListNextOfKinAsync(UserId(principal), staffId, ct));
+    private static async Task<IResult> ListStaffNextOfKinAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) { var actor = UserId(principal); var result = await service.ListNextOfKinAsync(actor, staffId, ct); await audit.WriteAsync(actor, "Staff.NextOfKinRead", "StaffProfile", staffId.ToString(), "Succeeded", null, ct); return Results.Ok(result); }
     private static async Task<IResult> AddStaffNextOfKinAsync(Guid staffId, StaffNextOfKinInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) => await CreatedHrAsync(await service.AddNextOfKinAsync(UserId(principal), staffId, input, ct), "StaffNextOfKin", "Staff.NextOfKinAdd", principal, audit, ct);
     private static async Task<IResult> UpdateStaffNextOfKinAsync(Guid staffId, Guid contactId, StaffNextOfKinInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) { var actor = UserId(principal); await service.UpdateNextOfKinAsync(actor, staffId, contactId, input, ct); await audit.WriteAsync(actor, "Staff.NextOfKinUpdate", "StaffNextOfKin", contactId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
     private static async Task<IResult> DeleteStaffNextOfKinAsync(Guid staffId, Guid contactId, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) { var actor = UserId(principal); await service.DeleteNextOfKinAsync(actor, staffId, contactId, ct); await audit.WriteAsync(actor, "Staff.NextOfKinDelete", "StaffNextOfKin", contactId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
@@ -373,7 +373,7 @@ public static class PhaseOneEndpoints
     { var actor = UserId(principal); await service.QueueAsync(actor, operationId, input.Checksum, ct); await audit.WriteAsync(actor, "Applicant.ImportQueue", "ImportOperation", operationId.ToString(), "Succeeded", null, ct); return Results.Accepted($"/api/v1/admissions/applicants/imports/{operationId}", new { operationId }); }
     private static async Task<IResult> GetApplicantImportAsync(Guid operationId, ClaimsPrincipal principal, IApplicantImportService service, CancellationToken ct) => Results.Ok(await service.GetAsync(UserId(principal), operationId, ct));
     private static async Task<IResult> ListApplicantImportsAsync(ClaimsPrincipal principal, IApplicantImportService service, CancellationToken ct) => Results.Ok(await service.ListAsync(UserId(principal), ct));
-    private static async Task<IResult> DownloadApplicantImportErrorsAsync(Guid operationId, ClaimsPrincipal principal, IApplicantImportService service, CancellationToken ct) => Results.Redirect(await service.GetErrorDownloadAsync(UserId(principal), operationId, ct));
+    private static async Task<IResult> DownloadApplicantImportErrorsAsync(Guid operationId, ClaimsPrincipal principal, IApplicantImportService service, IAuditWriter audit, CancellationToken ct) => await DownloadImportErrorsAsync(operationId, principal, service.GetErrorDownloadAsync, "Applicant.ImportErrorsDownload", audit, ct);
     private static Task<IResult> ExportStudentsAsync(ClaimsPrincipal principal, IDataPortabilityService service, IAuditWriter audit, CancellationToken ct) => ExportAsync("students.csv", "Student.Export", principal, service.ExportStudentsAsync, audit, ct);
     private static Task<IResult> ExportGuardiansAsync(ClaimsPrincipal principal, IDataPortabilityService service, IAuditWriter audit, CancellationToken ct) => ExportAsync("guardians.csv", "Guardian.Export", principal, service.ExportGuardiansAsync, audit, ct);
     private static async Task<IResult> BeginStudentImportAsync(ImportUploadInput input, ClaimsPrincipal principal, IProfileImportService service, IAuditWriter audit, CancellationToken ct) => await BeginProfileImportAsync(input, principal, service.BeginStudentsAsync, "Student.ImportUploadBegin", audit, ct);
@@ -384,8 +384,8 @@ public static class PhaseOneEndpoints
     private static async Task<IResult> GetGuardianImportAsync(Guid operationId, ClaimsPrincipal principal, IProfileImportService service, CancellationToken ct) => Results.Ok(await service.GetGuardiansAsync(UserId(principal), operationId, ct));
     private static async Task<IResult> ListStudentImportsAsync(ClaimsPrincipal principal, IProfileImportService service, CancellationToken ct) => Results.Ok(await service.ListStudentsAsync(UserId(principal), ct));
     private static async Task<IResult> ListGuardianImportsAsync(ClaimsPrincipal principal, IProfileImportService service, CancellationToken ct) => Results.Ok(await service.ListGuardiansAsync(UserId(principal), ct));
-    private static async Task<IResult> DownloadStudentImportErrorsAsync(Guid operationId, ClaimsPrincipal principal, IProfileImportService service, CancellationToken ct) => Results.Redirect(await service.GetStudentErrorDownloadAsync(UserId(principal), operationId, ct));
-    private static async Task<IResult> DownloadGuardianImportErrorsAsync(Guid operationId, ClaimsPrincipal principal, IProfileImportService service, CancellationToken ct) => Results.Redirect(await service.GetGuardianErrorDownloadAsync(UserId(principal), operationId, ct));
+    private static async Task<IResult> DownloadStudentImportErrorsAsync(Guid operationId, ClaimsPrincipal principal, IProfileImportService service, IAuditWriter audit, CancellationToken ct) => await DownloadImportErrorsAsync(operationId, principal, service.GetStudentErrorDownloadAsync, "Student.ImportErrorsDownload", audit, ct);
+    private static async Task<IResult> DownloadGuardianImportErrorsAsync(Guid operationId, ClaimsPrincipal principal, IProfileImportService service, IAuditWriter audit, CancellationToken ct) => await DownloadImportErrorsAsync(operationId, principal, service.GetGuardianErrorDownloadAsync, "Guardian.ImportErrorsDownload", audit, ct);
     private static async Task<IResult> ListStudentsAsync(int page, int pageSize, string? search, ClaimsPrincipal principal, IStudentLifecycleService service, CancellationToken ct) => Results.Ok(await service.ListStudentsAsync(UserId(principal), page, pageSize == 0 ? 25 : pageSize, search, ct));
     private static async Task<IResult> GetStudentAsync(Guid studentId, ClaimsPrincipal principal, IStudentLifecycleService service, CancellationToken ct) => Results.Ok(await service.GetStudentAsync(UserId(principal), studentId, ct));
     private static async Task<IResult> UpdateStudentAsync(Guid studentId, StudentProfileInput input, ClaimsPrincipal principal, IStudentLifecycleService service, IAuditWriter audit, CancellationToken ct)
@@ -426,5 +426,7 @@ public static class PhaseOneEndpoints
     { var actor = UserId(principal); await queue(actor, operationId, input.Checksum, ct); await audit.WriteAsync(actor, action, "ImportOperation", operationId.ToString(), "Succeeded", null, ct); return Results.Accepted($"/api/v1/{route}/imports/{operationId}", new { operationId }); }
     private static async Task<IResult> ExportAsync(string fileName, string action, ClaimsPrincipal principal, Func<Guid, CancellationToken, Task<string>> export, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); var csv = await export(actor, ct); await audit.WriteAsync(actor, action, "Tenant", "current", "Succeeded", null, ct); return Results.File(Encoding.UTF8.GetBytes($"\uFEFF{csv}"), "text/csv; charset=utf-8", fileName); }
+    private static async Task<IResult> DownloadImportErrorsAsync(Guid operationId, ClaimsPrincipal principal, Func<Guid, Guid, CancellationToken, Task<string>> download, string action, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); var url = await download(actor, operationId, ct); await audit.WriteAsync(actor, action, "ImportOperation", operationId.ToString(), "Succeeded", null, ct); return Results.Redirect(url); }
     private static Guid UserId(ClaimsPrincipal principal) => Guid.Parse(principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? throw new UnauthorizedAccessException());
 }

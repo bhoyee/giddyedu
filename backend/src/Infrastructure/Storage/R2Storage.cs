@@ -81,7 +81,14 @@ public sealed class R2FileObjectStorage(IAmazonS3 client, IOptions<R2Options> op
     public async Task WriteTextAsync(string objectKey, string contentType, string value, CancellationToken cancellationToken)
     {
         using var content = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(value));
-        await client.PutObjectAsync(new PutObjectRequest { BucketName = settings.Bucket, Key = objectKey, ContentType = contentType, InputStream = content }, cancellationToken);
+        await client.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = settings.Bucket,
+            Key = objectKey,
+            ContentType = contentType,
+            InputStream = content,
+            UseChunkEncoding = false
+        }, cancellationToken);
     }
 }
 
@@ -89,7 +96,14 @@ public static class R2ClientFactory
 {
     public static IAmazonS3 Create(R2Options options)
     {
-        var config = new AmazonS3Config { ServiceURL = options.Endpoint, ForcePathStyle = true, AuthenticationRegion = options.Region };
+        var config = new AmazonS3Config
+        {
+            ServiceURL = options.Endpoint,
+            ForcePathStyle = true,
+            AuthenticationRegion = options.Region,
+            RequestChecksumCalculation = RequestChecksumCalculation.WHEN_REQUIRED,
+            ResponseChecksumValidation = ResponseChecksumValidation.WHEN_REQUIRED
+        };
         return new AmazonS3Client(new BasicAWSCredentials(options.AccessKey, options.SecretKey), config);
     }
 }
