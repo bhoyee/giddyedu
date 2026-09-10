@@ -92,7 +92,7 @@ public sealed class AdmissionDecisionService(GiddyEduDbContext db, ITenantContex
     private async Task<AdmissionOffer> FindPublicOfferAsync(string token, CancellationToken ct) { if (string.IsNullOrWhiteSpace(token) || token.Length > 200) throw new KeyNotFoundException("Offer was not found."); return await db.AdmissionOffers.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(x => x.TokenHash == Hash(token), ct) ?? throw new KeyNotFoundException("Offer was not found."); }
     private void SetTenant(Guid tenantId) => tenant.Set(tenantId, null);
     private Guid RequireTenant() => currentTenant.TenantId ?? throw new InvalidOperationException("Tenant context is required.");
-    private string FrontendBaseUrl() => (configuration["Frontend:BaseUrl"] ?? "http://localhost:3000").TrimEnd('/');
+    private string FrontendBaseUrl() => (configuration["App:PublicBaseUrl"] ?? configuration["Frontend:BaseUrl"] ?? "http://localhost:3000").TrimEnd('/');
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     private static Guid[] ValidateBatch(IReadOnlyCollection<Guid> applicantIds) { var ids = applicantIds.Where(id => id != Guid.Empty).Distinct().ToArray(); if (ids.Length == 0 || ids.Length > 100) throw new ArgumentException("Select between 1 and 100 applicants.", nameof(applicantIds)); return ids; }
 }
