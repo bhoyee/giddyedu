@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="GiddyEdu">
+  <rect width="512" height="512" fill="#12372a"/>
+  <path fill="#f6f4ee" d="m128 190 128-69 128 69-128 69-128-69Zm43 48 85 46 85-46v90c-24 28-52 42-85 42s-61-14-85-42v-90Z"/>
+  <path fill="#10b981" d="M365 214h19v104h-19zM355 318h39l-10 40h-19l-10-40Z"/>
+</svg>
