@@ -169,7 +169,7 @@ public sealed class GiddyEduDbContext(
 
     private static void ConfigureTenancy(ModelBuilder b)
     {
-        b.Entity<Tenant>(e => { e.ToTable("Tenants"); e.HasKey(x => x.Id); e.Property(x => x.Name).HasMaxLength(200); e.Property(x => x.Slug).HasMaxLength(100); e.HasIndex(x => x.Slug).IsUnique(); });
+        b.Entity<Tenant>(e => { e.ToTable("Tenants"); e.HasKey(x => x.Id); e.Property(x => x.Name).HasMaxLength(200); e.Property(x => x.Slug).HasMaxLength(100); e.Property(x => x.DeletedAtUtc); e.HasIndex(x => x.Slug).IsUnique(); });
         b.Entity<Campus>(e => { e.ToTable("Campuses"); e.HasKey(x => x.Id); e.HasAlternateKey(x => new { x.TenantId, x.Id }); e.Property(x => x.Name).HasMaxLength(200); e.Property(x => x.Code).HasMaxLength(50); e.HasIndex(x => new { x.TenantId, x.Code }).IsUnique(); e.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict); });
         b.Entity<TenantMembership>(e => { e.ToTable("TenantMemberships"); e.HasKey(x => x.Id); e.HasIndex(x => new { x.TenantId, x.UserId }).IsUnique(); e.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict); e.HasOne<PlatformUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict); });
     }

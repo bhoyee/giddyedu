@@ -5,6 +5,8 @@ RUN npm ci
 
 FROM node:24-alpine AS build
 WORKDIR /app
+ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY
+ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=${NEXT_PUBLIC_TURNSTILE_SITE_KEY}
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY web/ ./
 RUN npm run build

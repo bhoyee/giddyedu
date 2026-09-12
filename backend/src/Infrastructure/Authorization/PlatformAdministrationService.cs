@@ -9,16 +9,19 @@ using Microsoft.EntityFrameworkCore;
 
 namespace GiddyEdu.Infrastructure.Authorization;
 
-public sealed record PlatformTenantSummary(Guid Id, string Name, string Slug, bool IsActive, long Campuses, long Memberships,
+public sealed record PlatformTenantSummary(Guid Id, string Name, string Slug, bool IsActive, DateTimeOffset CreatedAtUtc, DateTimeOffset? UpdatedAtUtc,
+    string? RegisteredByName, string? RegisteredByEmail, long Campuses, long Memberships,
     Guid? SubscriptionId, string? PlanCode, string? PlanName, SubscriptionStatus? SubscriptionStatus, DateTimeOffset? SubscriptionEndsAtUtc, DateTimeOffset? GraceEndsAtUtc);
 public sealed record PlatformTenantStatusInput(bool IsActive);
 public sealed record PlatformSubscriptionInput(string PlanCode, DateTimeOffset EndsAtUtc);
 public sealed record PlatformGracePeriodInput(DateTimeOffset GraceEndsAtUtc);
+public sealed record PlatformTenantDeleteInput(string Confirmation);
 
 public interface IPlatformAdministrationService
 {
     Task<IReadOnlyList<PlatformTenantSummary>> ListTenantsAsync(Guid actor, CancellationToken ct = default);
     Task SetTenantStatusAsync(Guid actor, Guid tenantId, PlatformTenantStatusInput input, CancellationToken ct = default);
+    Task DeleteTenantAsync(Guid actor, Guid tenantId, PlatformTenantDeleteInput input, CancellationToken ct = default);
     Task<Guid> ProvisionSubscriptionAsync(Guid actor, Guid tenantId, PlatformSubscriptionInput input, CancellationToken ct = default);
     Task BeginGracePeriodAsync(Guid actor, Guid tenantId, Guid subscriptionId, PlatformGracePeriodInput input, CancellationToken ct = default);
     Task SuspendSubscriptionAsync(Guid actor, Guid tenantId, Guid subscriptionId, CancellationToken ct = default);
@@ -30,8 +33,18 @@ public sealed class PlatformAdministrationService(GiddyEduDbContext db, ITenantC
     public async Task<IReadOnlyList<PlatformTenantSummary>> ListTenantsAsync(Guid actor, CancellationToken ct = default)
     {
         await DemandPlatformAdministratorAsync(actor, ct);
-        return await db.Tenants.IgnoreQueryFilters().AsNoTracking().OrderBy(x => x.Name).Select(tenant => new PlatformTenantSummary(
-            tenant.Id, tenant.Name, tenant.Slug, tenant.IsActive,
+        return await db.Tenants.IgnoreQueryFilters().AsNoTracking().Where(x => x.DeletedAtUtc == null).OrderBy(x => x.Name).Select(tenant => new PlatformTenantSummary(
+            tenant.Id, tenant.Name, tenant.Slug, tenant.IsActive, tenant.CreatedAtUtc, tenant.UpdatedAtUtc,
+            (from membership in db.TenantMemberships.IgnoreQueryFilters()
+             join user in db.Users on membership.UserId equals user.Id
+             where membership.TenantId == tenant.Id
+             orderby membership.CreatedAtUtc
+             select user.DisplayName).FirstOrDefault(),
+            (from membership in db.TenantMemberships.IgnoreQueryFilters()
+             join user in db.Users on membership.UserId equals user.Id
+             where membership.TenantId == tenant.Id
+             orderby membership.CreatedAtUtc
+             select user.Email).FirstOrDefault(),
             db.Campuses.IgnoreQueryFilters().LongCount(x => x.TenantId == tenant.Id && x.IsActive),
             db.TenantMemberships.IgnoreQueryFilters().LongCount(x => x.TenantId == tenant.Id && x.IsActive),
             db.TenantSubscriptions.IgnoreQueryFilters().Where(x => x.TenantId == tenant.Id).OrderByDescending(x => x.StartsAtUtc).Select(x => (Guid?)x.Id).FirstOrDefault(),
@@ -47,6 +60,17 @@ public sealed class PlatformAdministrationService(GiddyEduDbContext db, ITenantC
         await DemandPlatformAdministratorAsync(actor, ct);
         var target = await db.Tenants.IgnoreQueryFilters().SingleOrDefaultAsync(x => x.Id == tenantId, ct) ?? throw new KeyNotFoundException("Tenant was not found.");
         await InTenantScopeAsync(tenantId, async () => { if (input.IsActive) target.Reactivate(clock.UtcNow); else target.Suspend(clock.UtcNow); AddAudit(actor, input.IsActive ? "Tenant.Reactivate" : "Tenant.Suspend", "Tenant", tenantId, null); await db.SaveChangesAsync(ct); });
+    }
+
+    public async Task DeleteTenantAsync(Guid actor, Guid tenantId, PlatformTenantDeleteInput input, CancellationToken ct = default)
+    {
+        await DemandPlatformAdministratorAsync(actor, ct);
+        var target = await db.Tenants.IgnoreQueryFilters().SingleOrDefaultAsync(x => x.Id == tenantId && x.DeletedAtUtc == null, ct) ?? throw new KeyNotFoundException("Tenant was not found.");
+        var requiredConfirmation = $"DELETE {target.Slug}";
+        if (!string.Equals(input.Confirmation?.Trim(), requiredConfirmation, StringComparison.Ordinal)) throw new ArgumentException($"Type {requiredConfirmation} to confirm tenant deletion.", nameof(input));
+        target.Delete(clock.UtcNow);
+        AddAudit(actor, "Tenant.Delete", "Tenant", tenantId, new { target.Name, target.Slug, deletionMode = "soft" });
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task<Guid> ProvisionSubscriptionAsync(Guid actor, Guid tenantId, PlatformSubscriptionInput input, CancellationToken ct = default)

@@ -10,15 +10,18 @@ export function apiUrl(path: string) {
   return `${apiBaseUrl.replace(/\/$/, "")}${normalized}`;
 }
 
-export function setAuthenticationCookies(response: NextResponse, tokens: TokenResponse) {
+export function setAuthenticationCookies(response: NextResponse, tokens: TokenResponse, rememberSession = true) {
   const expires = new Date(tokens.expiresAtUtc);
   response.cookies.set("giddyedu_access", tokens.accessToken, { httpOnly: true, secure: secureCookie, sameSite: "lax", path: "/", expires });
-  response.cookies.set("giddyedu_refresh", tokens.refreshToken, { httpOnly: true, secure: secureCookie, sameSite: "strict", path: "/", maxAge: 60 * 60 * 24 * 14 });
+  const refreshOptions = { httpOnly: true, secure: secureCookie, sameSite: "strict" as const, path: "/", ...(rememberSession ? { maxAge: 60 * 60 * 24 * 14 } : {}) };
+  response.cookies.set("giddyedu_refresh", tokens.refreshToken, refreshOptions);
+  response.cookies.set("giddyedu_remember", rememberSession ? "1" : "0", refreshOptions);
 }
 
 export function clearAuthenticationCookies(response: NextResponse) {
   response.cookies.set("giddyedu_access", "", { httpOnly: true, secure: secureCookie, sameSite: "lax", path: "/", maxAge: 0 });
   response.cookies.set("giddyedu_refresh", "", { httpOnly: true, secure: secureCookie, sameSite: "strict", path: "/", maxAge: 0 });
+  response.cookies.set("giddyedu_remember", "", { httpOnly: true, secure: secureCookie, sameSite: "strict", path: "/", maxAge: 0 });
 }
 
 export async function parseApiResponse(response: Response) {

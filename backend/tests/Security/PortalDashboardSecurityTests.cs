@@ -188,6 +188,7 @@ public sealed class PortalDashboardSecurityTests
         var service = new PlatformAdministrationService(db, context, new SystemClock());
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ListTenantsAsync(actor));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.SetTenantStatusAsync(actor, firstTenantId, new PlatformTenantStatusInput(false)));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.DeleteTenantAsync(actor, firstTenantId, new PlatformTenantDeleteInput("DELETE platform-a")));
         var roleId = Guid.NewGuid(); db.Roles.Add(new IdentityRole<Guid>(GlobalRoles.PlatformAdministrator) { Id = roleId, NormalizedName = GlobalRoles.PlatformAdministrator.ToUpperInvariant() }); db.UserRoles.Add(new IdentityUserRole<Guid> { UserId = actor, RoleId = roleId }); await db.SaveChangesAsync();
 
         var tenants = await service.ListTenantsAsync(actor);
@@ -196,6 +197,15 @@ public sealed class PortalDashboardSecurityTests
         await service.SetTenantStatusAsync(actor, tenants[0].Id, new PlatformTenantStatusInput(false));
         Assert.False((await db.Tenants.SingleAsync(x => x.Id == tenants[0].Id)).IsActive);
         Assert.Contains(await db.PlatformAuditRecords.ToListAsync(), x => x.Action == "Tenant.Suspend" && x.ActorUserId == actor);
+        await Assert.ThrowsAsync<ArgumentException>(() => service.DeleteTenantAsync(actor, tenants[0].Id, new PlatformTenantDeleteInput("DELETE wrong-tenant")));
+
+        await service.DeleteTenantAsync(actor, tenants[0].Id, new PlatformTenantDeleteInput($"DELETE {tenants[0].Slug}"));
+
+        var deletedTenant = await db.Tenants.IgnoreQueryFilters().SingleAsync(x => x.Id == tenants[0].Id);
+        Assert.False(deletedTenant.IsActive);
+        Assert.NotNull(deletedTenant.DeletedAtUtc);
+        Assert.DoesNotContain(await service.ListTenantsAsync(actor), x => x.Id == deletedTenant.Id);
+        Assert.Contains(await db.PlatformAuditRecords.ToListAsync(), x => x.Action == "Tenant.Delete" && x.ActorUserId == actor);
     }
 
     private sealed class StubPermissions(IReadOnlyCollection<string> values) : IPermissionService

@@ -50,7 +50,7 @@ public sealed class PhaseOneEndpointSecurityContractTests
     {
         var endpoints = BuildEndpoints().Where(x => x.RoutePattern.RawText!.StartsWith("/api/v1/platform/admin/", StringComparison.Ordinal)).ToArray();
 
-        Assert.Equal(6, endpoints.Length);
+        Assert.Equal(7, endpoints.Length);
         Assert.All(endpoints, endpoint => Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
         Assert.All(endpoints.Where(x => !HttpMethods.IsGet(x.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.Single())), endpoint => Assert.Equal("administration", endpoint.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName));
     }

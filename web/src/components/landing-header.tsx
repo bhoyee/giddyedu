@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { BrandLogo } from "@/components/brand-logo";
 
 const links = [
   { href: "/features", label: "Features" },
   { href: "/#everyone", label: "For everyone" },
-  { href: "/#trust", label: "Why GiddyEdu" },
+  { href: "/#mobile", label: "Mobile apps" },
 ];
 
 export function LandingHeader() {
@@ -23,8 +24,7 @@ export function LandingHeader() {
   return <header className="absolute inset-x-0 top-0 z-40">
     <div className="mx-auto flex max-w-[90rem] items-center justify-between px-4 py-4 sm:px-6 sm:py-5 lg:px-12">
       <Link href="/" aria-label="GiddyEdu home" className="relative z-50 flex min-w-0 items-center gap-2.5 rounded-xl text-white transition hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#f4c95d] sm:gap-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#f4c95d] text-base font-black text-[#12372a] shadow-sm sm:size-10 sm:text-lg">G</span>
-        <span className="min-w-0"><span className="block text-lg font-black leading-none tracking-[-.04em] sm:text-xl">GiddyEdu</span><span className="mt-1 hidden text-[10px] font-semibold uppercase tracking-[.18em] text-white/65 sm:block">School, in sync</span></span>
+        <BrandLogo iconClassName="size-11 sm:size-13" wordmarkClassName="text-2xl sm:text-[1.7rem]" />
       </Link>
 
       <nav aria-label="Main navigation" className="hidden items-center gap-2 text-sm font-semibold text-white/80 lg:flex">{links.map(link => <a key={link.href} href={link.href} className="rounded-full px-4 py-2.5 transition duration-200 hover:-translate-y-0.5 hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f4c95d]">{link.label}</a>)}</nav>

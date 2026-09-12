@@ -9,5 +9,5 @@ export async function GET() {
   let upstream = await fetch(apiUrl("/api/v1/access/me"), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
   if (upstream.status === 401 && !refreshed) { const refreshToken = cookieStore.get("giddyedu_refresh")?.value; if (refreshToken) { refreshed = await refreshAuthentication(refreshToken); if (refreshed) upstream = await fetch(apiUrl("/api/v1/access/me"), { headers: { Authorization: `Bearer ${refreshed.accessToken}` }, cache: "no-store" }); } }
   if (!upstream.ok) { const response = NextResponse.json({ authenticated: false }, { status: upstream.status }); if (upstream.status === 401) clearAuthenticationCookies(response); return response; }
-  const response = NextResponse.json({ authenticated: true, access: await parseApiResponse(upstream) }); if (refreshed) setAuthenticationCookies(response, refreshed); return response;
+  const response = NextResponse.json({ authenticated: true, access: await parseApiResponse(upstream) }); if (refreshed) setAuthenticationCookies(response, refreshed, cookieStore.get("giddyedu_remember")?.value === "1"); return response;
 }

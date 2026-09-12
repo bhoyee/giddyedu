@@ -8,6 +8,6 @@ export async function POST(request: NextRequest) {
   const body = await parseApiResponse(upstream);
   if (!upstream.ok) return NextResponse.json(body ?? { message: "Sign in failed." }, { status: upstream.status });
   const response = NextResponse.json({ authenticated: true });
-  setAuthenticationCookies(response, body as TokenResponse);
+  setAuthenticationCookies(response, body as TokenResponse, payload.rememberMe === true);
   return response;
 }

@@ -52,7 +52,8 @@ public sealed class AccountInvitationService(GiddyEduDbContext db, ITenantContex
 
         var baseUrl = configuration["App:PublicBaseUrl"]?.TrimEnd('/') ?? "http://localhost:3000";
         var link = $"{baseUrl}/accept-invitation?token={Uri.EscapeDataString(rawToken)}";
-        var payload = JsonSerializer.Serialize(new EmailNotificationPayload("Your GiddyEdu invitation", $"<p>You have been invited to GiddyEdu. <a href=\"{System.Net.WebUtility.HtmlEncode(link)}\">Accept this secure invitation</a>. It expires in three days.</p>", $"Accept your GiddyEdu invitation within three days: {link}"));
+        var content = GiddyEduEmailTemplate.Create("You’re invited to GiddyEdu", "A school has invited you to join its secure GiddyEdu workspace.", "Accept invitation", link, supportingText: "This invitation expires in three days. If you were not expecting it, you can safely ignore this email.");
+        var payload = JsonSerializer.Serialize(new EmailNotificationPayload("Your GiddyEdu invitation", content.HtmlBody, content.TextBody));
         await notifications.EnqueueAsync("email", email, "identity.account-invitation", payload, ct);
         return new(invitation.Id, invitation.TargetType, invitation.TargetId, invitation.Email, invitation.ExpiresAtUtc);
     }

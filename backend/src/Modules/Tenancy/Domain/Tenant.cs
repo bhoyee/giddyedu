@@ -20,8 +20,10 @@ public sealed class Tenant
     public bool IsActive { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public DateTimeOffset? UpdatedAtUtc { get; private set; }
+    public DateTimeOffset? DeletedAtUtc { get; private set; }
     public void Suspend(DateTimeOffset now) { IsActive = false; UpdatedAtUtc = now; }
     public void Reactivate(DateTimeOffset now) { IsActive = true; UpdatedAtUtc = now; }
+    public void Delete(DateTimeOffset now) { IsActive = false; DeletedAtUtc ??= now; UpdatedAtUtc = now; }
 
     private static string Require(string value, string name, int maxLength)
     {

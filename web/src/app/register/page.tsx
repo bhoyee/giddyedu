@@ -1,3 +1,4 @@
-import Link from "next/link";
 import { RegisterForm } from "@/components/auth-form";
-export default function RegisterPage() { return <main className="grid min-h-screen place-items-center bg-[#f6f4ee] px-6 py-12"><section className="w-full max-w-lg rounded-3xl bg-white p-8 shadow-xl"><Link href="/" className="text-sm font-bold text-emerald-800">← GiddyEdu</Link><h1 className="mt-6 text-3xl font-black">Register your school</h1><p className="mb-7 mt-2 text-slate-600">Create the first administrator, tenant and main campus.</p><RegisterForm /><p className="mt-6 text-sm text-slate-600">Already registered? <Link className="font-bold text-emerald-800" href="/login">Sign in</Link></p></section></main>; }
+import { AuthShell } from "@/components/auth-shell";
+
+export default function RegisterPage() { return <AuthShell eyebrow="School registration" title="Build your school’s workspace." introduction="Create the school, main campus and first trusted administrator to begin onboarding." imageSrc="/auth-school-registration.png" imageAlt="Two school leaders planning their school’s next chapter" panelEyebrow="A foundation that can grow" panelTitle="Bring your school’s next chapter into focus." panelDescription="Start with one connected campus, clear ownership and a connected foundation designed to grow with your community."><RegisterForm /></AuthShell>; }

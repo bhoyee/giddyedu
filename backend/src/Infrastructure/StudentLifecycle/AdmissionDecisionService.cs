@@ -46,8 +46,9 @@ public sealed class AdmissionDecisionService(GiddyEduDbContext db, ITenantContex
         db.AdmissionOffers.Add(new AdmissionOffer(id, RequireTenant(), applicantId, Hash(rawToken), expiry, clock.UtcNow)); await db.SaveChangesAsync(ct);
         var school = await db.SchoolProfiles.AsNoTracking().Select(x => x.DisplayName).SingleOrDefaultAsync(ct) ?? "GiddyEdu school";
         var link = $"{FrontendBaseUrl()}/admissions/respond?token={Uri.EscapeDataString(rawToken)}";
-        var encodedSchool = System.Net.WebUtility.HtmlEncode(school); var encodedName = System.Net.WebUtility.HtmlEncode($"{applicant.FirstName} {applicant.LastName}");
-        var payload = JsonSerializer.Serialize(new EmailNotificationPayload($"Admission offer from {school}", $"<p>Dear {encodedName},</p><p>{encodedSchool} has issued your admission offer. <a href=\"{System.Net.WebUtility.HtmlEncode(link)}\">View the admission letter and respond</a> before {expiry:dd MMMM yyyy}.</p>", $"{school} has issued your admission offer. View and respond before {expiry:dd MMMM yyyy}: {link}"));
+        var applicantName = $"{applicant.FirstName} {applicant.LastName}";
+        var content = GiddyEduEmailTemplate.Create("Your admission offer is ready", $"Dear {applicantName}, {school} has issued an admission offer for you.", "View offer and respond", link, supportingText: $"Please respond before {expiry:dd MMMM yyyy}. This secure link is unique to your application.");
+        var payload = JsonSerializer.Serialize(new EmailNotificationPayload($"Admission offer from {school}", content.HtmlBody, content.TextBody));
         await notifications.EnqueueAsync("email", applicant.Email, "admissions.offer", payload, ct); return id;
     }
 
@@ -58,7 +59,7 @@ public sealed class AdmissionDecisionService(GiddyEduDbContext db, ITenantContex
         if (applicant.Status is not (ApplicationStatus.UnderReview or ApplicationStatus.Waitlisted or ApplicationStatus.Offered)) throw new InvalidOperationException("This application cannot be rejected from its current status.");
         foreach (var offer in await db.AdmissionOffers.Where(x => x.ApplicantId == applicantId && x.Response == AdmissionResponse.Pending).ToListAsync(ct)) offer.Supersede(clock.UtcNow);
         applicant.Transition(ApplicationStatus.Rejected, clock.UtcNow); await db.SaveChangesAsync(ct);
-        if (!string.IsNullOrWhiteSpace(applicant.Email)) { var payload = JsonSerializer.Serialize(new EmailNotificationPayload("Admission application update", "<p>Your admission application was not successful. Please contact the school if you need further information.</p>", "Your admission application was not successful. Please contact the school if you need further information.")); await notifications.EnqueueAsync("email", applicant.Email, "admissions.rejected", payload, ct); }
+        if (!string.IsNullOrWhiteSpace(applicant.Email)) { var content = GiddyEduEmailTemplate.Create("Admission application update", "Your admission application was not successful on this occasion.", supportingText: "Please contact the school directly if you need further information about this decision."); var payload = JsonSerializer.Serialize(new EmailNotificationPayload("Admission application update", content.HtmlBody, content.TextBody)); await notifications.EnqueueAsync("email", applicant.Email, "admissions.rejected", payload, ct); }
     }
 
     public async Task<ApplicantOfferInfo> GetOfferAsync(string token, CancellationToken ct = default)

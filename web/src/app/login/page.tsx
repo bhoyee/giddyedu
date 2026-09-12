@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { LoginForm } from "@/components/auth-form";
+import { AuthShell } from "@/components/auth-shell";
 
 export default function LoginPage() {
-  return <main className="grid min-h-screen place-items-center bg-[#f6f4ee] px-6 py-12"><section className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl"><Link href="/" className="text-sm font-bold text-emerald-800">← GiddyEdu</Link><h1 className="mt-6 text-3xl font-black">Welcome back</h1><p className="mb-7 mt-2 text-slate-600">Sign in to the correct school workspace.</p><LoginForm /><p className="mt-6 text-sm text-slate-600">New school? <Link className="font-bold text-emerald-800" href="/register">Register here</Link></p><p className="mt-3 text-sm text-slate-600">GiddyEdu operator? <Link className="font-bold text-emerald-800" href="/platform-login">Use platform sign-in</Link></p></section></main>;
+  return <AuthShell eyebrow="School workspace sign in" title="Welcome back." introduction="Enter your email address and password. We’ll securely find the schools and campuses connected to your account." imageSrc="/auth-login.png" imageAlt="A teacher arriving at his modern school workspace" panelEyebrow="Back to your school day" panelTitle="Everything you need is ready when you are." panelDescription="Return to the classes, people and responsibilities connected to your secure school workspace."><LoginForm /></AuthShell>;
 }

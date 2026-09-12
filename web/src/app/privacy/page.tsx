@@ -1,0 +1,14 @@
+import { LegalPage, type LegalSection } from "@/components/legal-page";
+
+const sections: LegalSection[] = [
+  { title: "Information we process", paragraphs: ["GiddyEdu processes account, school, campus, staff, student, guardian, academic, operational, communication and billing information provided through the platform. Technical information such as device, session, security and audit data may also be processed to operate and protect the service."] },
+  { title: "How information is used", paragraphs: ["Information is used to provide authorised school services, maintain accounts, deliver notifications, support users, secure the platform, keep audit records, improve reliability and meet contractual obligations.", "GiddyEdu does not use student or school records for unrelated advertising."] },
+  { title: "Schools and authorised users", paragraphs: ["Schools decide which authorised users may access their tenant and are responsible for providing appropriate notices, permissions and instructions for information they place in GiddyEdu. Users must access information only for legitimate school purposes."] },
+  { title: "Sharing and service providers", paragraphs: ["Information may be shared with vetted infrastructure, communications, payment, storage and support providers only where needed to deliver the service. Information may also be disclosed when required by law or to protect users, the platform or the public."] },
+  { title: "Security and retention", paragraphs: ["GiddyEdu applies tenant isolation, permission controls, logging and other technical and organisational safeguards appropriate to the service. No system can guarantee absolute security.", "Information is retained for the service period and as needed for legitimate operational, contractual, legal, backup and dispute-resolution purposes, then deleted or anonymised according to applicable retention arrangements."] },
+  { title: "Your choices and rights", paragraphs: ["Requests to access, correct, export or delete school-controlled information should normally be directed to the relevant school. Account and privacy enquiries may also be submitted through the authorised GiddyEdu support channel identified in the applicable service agreement."] },
+  { title: "Children’s information", paragraphs: ["Student information is handled as sensitive school information. Schools and authorised guardians are responsible for ensuring an appropriate basis for its use and for managing required notices or consents."] },
+  { title: "Policy changes", paragraphs: ["This policy may be updated as the platform, service providers or legal requirements change. Material updates will be communicated through an appropriate service channel."] },
+];
+
+export default function PrivacyPage() { return <LegalPage title="Privacy Policy" introduction="This policy explains how information is handled when schools and their communities use GiddyEdu." sections={sections} />; }

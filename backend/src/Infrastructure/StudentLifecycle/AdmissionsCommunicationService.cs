@@ -24,8 +24,8 @@ public sealed class AdmissionsCommunicationService(GiddyEduDbContext db, IFeatur
         if (string.IsNullOrWhiteSpace(applicant.Email)) throw new InvalidOperationException("Applicant email is required before communication can be sent.");
         if (input.Type == ApplicantCommunicationType.Offer && applicant.Status is not (ApplicationStatus.Offered or ApplicationStatus.Accepted)) throw new InvalidOperationException("Offer communication can only be sent for an offered or accepted application.");
         var subject = Required(input.Subject, 200); var message = Required(input.Message, 5000);
-        var encoded = System.Net.WebUtility.HtmlEncode(message).Replace("\r\n", "<br>").Replace("\n", "<br>");
-        var payload = JsonSerializer.Serialize(new EmailNotificationPayload(subject, $"<p>{encoded}</p>", message));
+        var content = GiddyEduEmailTemplate.Create(subject, message, supportingText: "This message was sent by your school through GiddyEdu.");
+        var payload = JsonSerializer.Serialize(new EmailNotificationPayload(subject, content.HtmlBody, content.TextBody));
         return await notifications.EnqueueAsync("email", applicant.Email, $"admissions.{input.Type.ToString().ToLowerInvariant()}", payload, ct);
     }
 

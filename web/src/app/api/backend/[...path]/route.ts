@@ -27,7 +27,7 @@ async function forward(request: NextRequest, context: RouteContext) {
     response = new NextResponse(await upstream.arrayBuffer(), { status: upstream.status, headers: { "Content-Type": contentType || "application/octet-stream" } });
     const disposition = upstream.headers.get("content-disposition"); if (disposition) response.headers.set("Content-Disposition", disposition);
   }
-  if (refreshed) setAuthenticationCookies(response, refreshed); else if (upstream.status === 401) clearAuthenticationCookies(response);
+  if (refreshed) setAuthenticationCookies(response, refreshed, cookieStore.get("giddyedu_remember")?.value === "1"); else if (upstream.status === 401) clearAuthenticationCookies(response);
   return response;
 }
 

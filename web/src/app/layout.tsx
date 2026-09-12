@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
+import { CookieConsent } from "@/components/cookie-consent";
 
 export const metadata: Metadata = {
   title: "GiddyEdu — School Operating Platform",
@@ -9,10 +10,7 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, statusBarStyle: "default", title: "GiddyEdu" },
   icons: {
-    icon: [
-      { url: "/icons/giddyedu-192.png", type: "image/png", sizes: "192x192" },
-      { url: "/icons/giddyedu.svg", type: "image/svg+xml", sizes: "any" },
-    ],
+    icon: [{ url: "/icons/giddyedu.svg", type: "image/svg+xml", sizes: "any" }],
     apple: [{ url: "/icons/giddyedu-apple-180.png", type: "image/png", sizes: "180x180" }],
   },
 };
@@ -20,5 +18,5 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { themeColor: "#12372a", colorScheme: "light" };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
-  return <html lang="en" className="h-full antialiased"><body className="flex min-h-full flex-col">{children}<ServiceWorkerRegistration /></body></html>;
+  return <html lang="en" className="h-full antialiased"><body className="flex min-h-full flex-col">{children}<ServiceWorkerRegistration /><CookieConsent /></body></html>;
 }

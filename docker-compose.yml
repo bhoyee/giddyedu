@@ -48,6 +48,7 @@ services:
       Jwt__Audience: ${JWT__AUDIENCE}
       Jwt__SigningKey: ${JWT__SIGNINGKEY}
       App__PublicBaseUrl: ${APP__PUBLICBASEURL:-http://localhost:3000}
+      Turnstile__SecretKey: ${TURNSTILE_SECRET_KEY:-}
       R2__Endpoint: ${R2__ENDPOINT}
       R2__Region: ${R2__REGION:-auto}
       R2__Bucket: ${R2__BUCKET}
@@ -115,6 +116,8 @@ services:
     build:
       context: .
       dockerfile: web/Dockerfile
+      args:
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
     container_name: giddyedu-web
     restart: unless-stopped
     environment:
