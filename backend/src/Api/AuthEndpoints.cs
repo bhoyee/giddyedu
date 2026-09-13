@@ -10,6 +10,7 @@ using GiddyEdu.Infrastructure.Persistence;
 using GiddyEdu.Infrastructure.Platform;
 using GiddyEdu.Modules.Identity;
 using GiddyEdu.Modules.Identity.Domain;
+using GiddyEdu.Modules.Schools.Domain;
 using GiddyEdu.Modules.Tenancy.Domain;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
@@ -19,7 +20,7 @@ using StackExchange.Redis;
 
 public static class AuthEndpoints
 {
-    public sealed record RegisterRequest(string SchoolName, string SchoolSlug, string CampusName, string DisplayName, string Email, string Password, bool AcceptTerms, string TurnstileToken);
+    public sealed record RegisterRequest(string SchoolName, string SchoolType, string RoleAtSchool, string Phone, string DisplayName, string Email, string Password, bool AcceptTerms, string TurnstileToken);
     public sealed record LoginRequest(string Email, string Password, Guid TenantId, Guid? CampusId);
     public sealed record PlatformLoginRequest(string Email, string Password);
     public sealed record WorkspaceDiscoveryRequest(string Email, string Password);
@@ -30,7 +31,7 @@ public static class AuthEndpoints
     public sealed record ConfirmEmailRequest(string Email, string Token);
     public sealed record ConfirmEmailCodeRequest(string Email, string Code);
     public sealed record ResendEmailConfirmationRequest(string Email);
-    public sealed record ForgotPasswordRequest(string Email);
+    public sealed record ForgotPasswordRequest(string Email, string TurnstileToken);
     public sealed record ResetPasswordRequest(string Email, string Token, string NewPassword);
     public sealed record ResetPasswordCodeRequest(string Email, string Code, string NewPassword);
     private sealed record PasswordResetCode(string CodeHash, string Salt, int FailedAttempts);
@@ -60,11 +61,19 @@ public static class AuthEndpoints
     {
         if (!request.AcceptTerms) return Validation("You must agree to the Terms and Conditions and acknowledge the Privacy Policy.");
         if (!await VerifyTurnstileAsync(request.TurnstileToken, "register", httpContext.Connection.RemoteIpAddress?.ToString(), configuration, httpClientFactory, cancellationToken)) return Validation("Complete the security check and try again.");
-        if (string.IsNullOrWhiteSpace(request.SchoolName) || string.IsNullOrWhiteSpace(request.CampusName) || string.IsNullOrWhiteSpace(request.DisplayName)) return Validation("Required registration fields are missing.");
-        var slug = request.SchoolSlug.Trim().ToLowerInvariant();
-        if (slug.Length is < 3 or > 100 || slug.Any(c => !char.IsLetterOrDigit(c) && c != '-')) return Validation("SchoolSlug must contain only lowercase letters, numbers, and hyphens.");
-        if (await db.Tenants.AnyAsync(x => x.Slug == slug, cancellationToken)) return Results.Conflict(new { code = "tenant_slug_exists" });
-        var user = new PlatformUser { Id = Guid.NewGuid(), UserName = request.Email.Trim(), Email = request.Email.Trim(), DisplayName = request.DisplayName.Trim(), CreatedAtUtc = clock.UtcNow };
+        if (string.IsNullOrWhiteSpace(request.SchoolName) || string.IsNullOrWhiteSpace(request.DisplayName) || string.IsNullOrWhiteSpace(request.Phone)) return Validation("Required registration fields are missing.");
+        var schoolTypes = new[] { "Nursery", "Primary", "Secondary", "Primary and Secondary", "Nursery, Primary and Secondary" };
+        var schoolRoles = new[] { "Owner / Proprietor", "Head Teacher / Principal", "Admin Officer", "Other" };
+        if (!schoolTypes.Contains(request.SchoolType, StringComparer.Ordinal) || !schoolRoles.Contains(request.RoleAtSchool, StringComparer.Ordinal)) return Validation("Select a valid school type and role at the school.");
+        if (request.Phone.Length != 11 || !request.Phone.All(char.IsDigit)) return Validation("Phone number must contain exactly 11 digits.");
+        var normalizedEmail = request.Email.Trim();
+        if (await users.FindByEmailAsync(normalizedEmail) is not null) return Results.Conflict(new { code = "email_exists", message = "An account already exists for this email address." });
+        var normalizedSchoolName = request.SchoolName.Trim();
+        if (await db.Tenants.IgnoreQueryFilters().AnyAsync(x => x.Name.ToLower() == normalizedSchoolName.ToLower(), cancellationToken)) return Results.Conflict(new { code = "school_name_exists", message = "A school with this name already exists." });
+        var slug = CreateSchoolSlug(normalizedSchoolName);
+        if (slug.Length < 3) return Validation("School name must contain at least three letters or numbers.");
+        if (await db.Tenants.IgnoreQueryFilters().AnyAsync(x => x.Slug == slug, cancellationToken)) return Results.Conflict(new { code = "school_url_exists", message = "The generated school URL is already in use." });
+        var user = new PlatformUser { Id = Guid.NewGuid(), UserName = normalizedEmail, Email = normalizedEmail, PhoneNumber = request.Phone.Trim(), DisplayName = request.DisplayName.Trim(), CreatedAtUtc = clock.UtcNow };
         var created = await users.CreateAsync(user, request.Password);
         if (!created.Succeeded) return IdentityErrors(created);
 
@@ -75,8 +84,9 @@ public static class AuthEndpoints
         {
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
             db.Tenants.Add(new Tenant(tenantId, request.SchoolName, slug, clock.UtcNow));
-            db.Campuses.Add(new Campus(Guid.NewGuid(), tenantId, request.CampusName, "MAIN", clock.UtcNow));
-            db.TenantMemberships.Add(new TenantMembership(membershipId, tenantId, user.Id, clock.UtcNow));
+            db.Campuses.Add(new Campus(Guid.NewGuid(), tenantId, "Main Campus", "MAIN", clock.UtcNow, true));
+            db.TenantMemberships.Add(new TenantMembership(membershipId, tenantId, user.Id, clock.UtcNow, request.RoleAtSchool));
+            db.SchoolProfiles.Add(new SchoolProfile(tenantId, request.SchoolName, request.SchoolType, request.SchoolName, "NG", "Africa/Lagos", "NGN", clock.UtcNow));
             var catalog = Permissions.Foundation;
             foreach (var name in catalog)
                 if (!await db.Permissions.AnyAsync(x => x.Name == name, cancellationToken)) db.Permissions.Add(new Permission(Guid.NewGuid(), name, name));
@@ -286,9 +296,10 @@ public static class AuthEndpoints
         finally { tenant.Clear(); }
     }
 
-    private static async Task<IResult> ForgotPasswordAsync(ForgotPasswordRequest request, UserManager<PlatformUser> users, IEmailSender email, IConfiguration configuration, IConnectionMultiplexer redis, CancellationToken cancellationToken)
+    private static async Task<IResult> ForgotPasswordAsync(ForgotPasswordRequest request, UserManager<PlatformUser> users, IEmailSender email, IConfiguration configuration, IConnectionMultiplexer redis, IHttpClientFactory httpClientFactory, HttpContext httpContext, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Email)) return Validation("Enter your account email address.");
+        if (!await VerifyTurnstileAsync(request.TurnstileToken, "forgot-password", httpContext.Connection.RemoteIpAddress?.ToString(), configuration, httpClientFactory, cancellationToken)) return Validation("Complete the security check and try again.");
         var user = await users.FindByEmailAsync(request.Email.Trim());
         if (user is not { IsActive: true }) return Results.NotFound(new { code = "account_email_not_found", message = "No active GiddyEdu account was found for this email address." });
         var stampResult = await users.UpdateSecurityStampAsync(user);
@@ -338,6 +349,14 @@ public static class AuthEndpoints
     }
 
     private static string PasswordResetCodeKey(string email) => $"identity:password-reset:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(email.Trim().ToUpperInvariant())))}";
+    private static string CreateSchoolSlug(string schoolName)
+    {
+        var slug = new string(string.Join('-', schoolName.ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+            .Select(character => char.IsAsciiLetterOrDigit(character) || character == '-' ? character : '-').ToArray());
+        while (slug.Contains("--", StringComparison.Ordinal)) slug = slug.Replace("--", "-", StringComparison.Ordinal);
+        slug = slug.Trim('-');
+        return slug[..Math.Min(slug.Length, 100)].TrimEnd('-');
+    }
     private static string EmailConfirmationCodeKey(string email) => $"identity:email-confirmation:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(email.Trim().ToUpperInvariant())))}";
     private static string HashResetCode(string code, byte[] salt) => Convert.ToBase64String(SHA256.HashData([.. salt, .. Encoding.UTF8.GetBytes(code)]));
 

@@ -223,18 +223,21 @@ public static class PhaseOneEndpoints
 
     private static IResult InvalidApplication(string message) => Results.ValidationProblem(new Dictionary<string, string[]> { ["application"] = [message] });
 
-    private static async Task<IResult> GetAccessContextAsync(ClaimsPrincipal principal, ITenantContext tenant, IPermissionService permissions, IAccessProfileService profiles, IEntitlementService entitlements, CancellationToken ct)
+    private static async Task<IResult> GetAccessContextAsync(ClaimsPrincipal principal, ITenantContext tenant, IPermissionService permissions, IAccessProfileService profiles, IEntitlementService entitlements, GiddyEduDbContext db, CancellationToken ct)
     {
         var actor = UserId(principal); var platformAdmin = principal.IsInRole(GlobalRoles.PlatformAdministrator);
+        var displayName = await db.Users.AsNoTracking().Where(x => x.Id == actor).Select(x => x.DisplayName).SingleOrDefaultAsync(ct) ?? "GiddyEdu user";
         if (platformAdmin && !tenant.TenantId.HasValue)
-            return Results.Ok(new { userId = actor, tenantId = (Guid?)null, campusId = (Guid?)null, roles = new[] { GlobalRoles.PlatformAdministrator }, audiences = new[] { "SuperAdmin" }, defaultAudience = "SuperAdmin", permissions = new[] { PlatformPermissions.TenantsView }, entitlements = new Dictionary<string, EffectiveEntitlement>() });
+            return Results.Ok(new { userId = actor, displayName, tenantId = (Guid?)null, tenantName = "GiddyEdu Platform", campusId = (Guid?)null, campusName = (string?)null, roles = new[] { GlobalRoles.PlatformAdministrator }, audiences = new[] { "SuperAdmin" }, defaultAudience = "SuperAdmin", permissions = new[] { PlatformPermissions.TenantsView }, entitlements = new Dictionary<string, EffectiveEntitlement>() });
         var effectivePermissions = await permissions.GetEffectivePermissionsAsync(actor, ct);
         var presentation = await profiles.GetPresentationAsync(actor, effectivePermissions, ct);
         var effectiveEntitlements = new Dictionary<string, EffectiveEntitlement>();
         foreach (var featureKey in FeatureKeys.PhaseOne) effectiveEntitlements[featureKey] = await entitlements.GetAsync(featureKey, tenant.CampusId, ct);
         var audiences = platformAdmin ? new[] { "SuperAdmin" }.Concat(presentation.Audiences).Distinct().ToArray() : presentation.Audiences;
         var permissionList = platformAdmin ? effectivePermissions.Append(PlatformPermissions.TenantsView).Distinct().ToArray() : effectivePermissions;
-        return Results.Ok(new { userId = actor, tenantId = tenant.TenantId, campusId = tenant.CampusId, roles = presentation.Roles, audiences, defaultAudience = platformAdmin ? "SuperAdmin" : presentation.DefaultAudience, permissions = permissionList, entitlements = effectiveEntitlements });
+        var tenantName = tenant.TenantId.HasValue ? await db.Tenants.IgnoreQueryFilters().Where(x => x.Id == tenant.TenantId.Value).Select(x => x.Name).SingleOrDefaultAsync(ct) : null;
+        var campusName = tenant.CampusId.HasValue ? await db.Campuses.Where(x => x.Id == tenant.CampusId.Value).Select(x => x.Name).SingleOrDefaultAsync(ct) : null;
+        return Results.Ok(new { userId = actor, displayName, tenantId = tenant.TenantId, tenantName, campusId = tenant.CampusId, campusName, roles = presentation.Roles, audiences, defaultAudience = platformAdmin ? "SuperAdmin" : presentation.DefaultAudience, permissions = permissionList, entitlements = effectiveEntitlements });
     }
     private static async Task<IResult> ListPlatformTenantsAsync(ClaimsPrincipal principal, IPlatformAdministrationService service, CancellationToken ct) => Results.Ok(await service.ListTenantsAsync(UserId(principal), ct));
     private static async Task<IResult> SetPlatformTenantStatusAsync(Guid tenantId, PlatformTenantStatusInput input, ClaimsPrincipal principal, IPlatformAdministrationService service, CancellationToken ct) { await service.SetTenantStatusAsync(UserId(principal), tenantId, input, ct); return Results.NoContent(); }

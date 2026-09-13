@@ -24,6 +24,7 @@ public sealed class Tenant
     public void Suspend(DateTimeOffset now) { IsActive = false; UpdatedAtUtc = now; }
     public void Reactivate(DateTimeOffset now) { IsActive = true; UpdatedAtUtc = now; }
     public void Delete(DateTimeOffset now) { IsActive = false; DeletedAtUtc ??= now; UpdatedAtUtc = now; }
+    public void UpdateIdentity(string name, string slug, DateTimeOffset now) { Name = Require(name, nameof(name), 200); Slug = Require(slug, nameof(slug), 100).ToLowerInvariant(); UpdatedAtUtc = now; }
 
     private static string Require(string value, string name, int maxLength)
     {

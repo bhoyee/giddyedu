@@ -170,8 +170,8 @@ public sealed class GiddyEduDbContext(
     private static void ConfigureTenancy(ModelBuilder b)
     {
         b.Entity<Tenant>(e => { e.ToTable("Tenants"); e.HasKey(x => x.Id); e.Property(x => x.Name).HasMaxLength(200); e.Property(x => x.Slug).HasMaxLength(100); e.Property(x => x.DeletedAtUtc); e.HasIndex(x => x.Slug).IsUnique(); });
-        b.Entity<Campus>(e => { e.ToTable("Campuses"); e.HasKey(x => x.Id); e.HasAlternateKey(x => new { x.TenantId, x.Id }); e.Property(x => x.Name).HasMaxLength(200); e.Property(x => x.Code).HasMaxLength(50); e.HasIndex(x => new { x.TenantId, x.Code }).IsUnique(); e.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict); });
-        b.Entity<TenantMembership>(e => { e.ToTable("TenantMemberships"); e.HasKey(x => x.Id); e.HasIndex(x => new { x.TenantId, x.UserId }).IsUnique(); e.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict); e.HasOne<PlatformUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict); });
+        b.Entity<Campus>(e => { e.ToTable("Campuses"); e.HasKey(x => x.Id); e.HasAlternateKey(x => new { x.TenantId, x.Id }); e.Property(x => x.Name).HasMaxLength(200); e.Property(x => x.Code).HasMaxLength(50); e.HasIndex(x => new { x.TenantId, x.Code }).IsUnique(); e.HasIndex(x => x.TenantId).HasFilter("\"IsMainCampus\" = TRUE").IsUnique(); e.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict); });
+        b.Entity<TenantMembership>(e => { e.ToTable("TenantMemberships"); e.HasKey(x => x.Id); e.Property(x => x.RoleAtSchool).HasMaxLength(50); e.HasIndex(x => new { x.TenantId, x.UserId }).IsUnique(); e.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict); e.HasOne<PlatformUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict); });
     }
 
     private static void ConfigureIdentity(ModelBuilder b)
@@ -217,9 +217,12 @@ public sealed class GiddyEduDbContext(
     {
         b.Entity<SchoolProfile>(e =>
         {
-            e.ToTable("SchoolProfiles"); e.HasKey(x => x.TenantId); e.Property(x => x.DisplayName).HasMaxLength(200); e.Property(x => x.LegalName).HasMaxLength(250);
+            e.ToTable("SchoolProfiles"); e.HasKey(x => x.TenantId); e.Property(x => x.DisplayName).HasMaxLength(200); e.Property(x => x.SchoolType).HasMaxLength(50); e.Property(x => x.LegalName).HasMaxLength(250); e.Property(x => x.Tagline).HasMaxLength(160);
             e.Property(x => x.Email).HasMaxLength(320); e.Property(x => x.Phone).HasMaxLength(30); e.Property(x => x.WebsiteUrl).HasMaxLength(500); e.Property(x => x.Address).HasMaxLength(1000);
+            e.Property(x => x.State).HasMaxLength(100); e.Property(x => x.LocalGovernment).HasMaxLength(150);
             e.Property(x => x.CountryCode).HasMaxLength(2); e.Property(x => x.TimeZone).HasMaxLength(100); e.Property(x => x.CurrencyCode).HasMaxLength(3);
+            e.Property(x => x.DateFormat).HasMaxLength(20); e.Property(x => x.TimeFormat).HasMaxLength(20); e.Property(x => x.CustomDomain).HasMaxLength(253);
+            e.HasIndex(x => x.CustomDomain).IsUnique().HasFilter("\"CustomDomain\" IS NOT NULL");
             e.Property(x => x.PrimaryColor).HasMaxLength(7); e.Property(x => x.SecondaryColor).HasMaxLength(7);
             e.HasOne<Tenant>().WithOne().HasForeignKey<SchoolProfile>(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
         });

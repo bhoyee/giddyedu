@@ -28,3 +28,24 @@ button:disabled,
 [role="button"][aria-disabled="true"] {
   cursor: not-allowed;
 }
+
+@utility field-control {
+  margin-top: 0.25rem;
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-slate-300);
+  padding: 0.75rem 1rem;
+  outline: none;
+  transition: border-color 150ms, box-shadow 150ms;
+
+  &:focus {
+    border-color: var(--color-emerald-600);
+    box-shadow: 0 0 0 3px var(--color-emerald-100);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    background: var(--color-slate-100);
+    color: var(--color-slate-500);
+  }
+}

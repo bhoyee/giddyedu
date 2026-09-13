@@ -67,8 +67,9 @@ public sealed class PhaseOneDomainTests
     [Fact]
     public void SchoolProfile_NormalizesCountryAndCurrencyCodes()
     {
-        var profile = new SchoolProfile(Guid.NewGuid(), "Giddy School", "ng", "Africa/Lagos", "ngn", DateTimeOffset.UtcNow);
+        var profile = new SchoolProfile(Guid.NewGuid(), "Giddy School", "Primary and Secondary", "Giddy School", "ng", "Africa/Lagos", "ngn", DateTimeOffset.UtcNow);
         Assert.Equal("NG", profile.CountryCode); Assert.Equal("NGN", profile.CurrencyCode);
+        Assert.Equal("Giddy School", profile.LegalName);
     }
 
     [Fact]
