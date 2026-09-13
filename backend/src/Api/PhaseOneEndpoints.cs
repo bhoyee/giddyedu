@@ -63,12 +63,25 @@ public static class PhaseOneEndpoints
         subscriptions.MapPost("/{subscriptionId:guid}/reactivate", ReactivateSubscriptionAsync);
 
         var schools = endpoints.MapGroup("/api/v1/schools");
+        schools.MapGet("/branding", async (ISchoolAdministrationService service, CancellationToken ct) =>
+        {
+            var branding = await service.GetBrandingAsync(ct);
+            return branding is null ? Results.NotFound() : Results.Ok(branding);
+        });
+        schools.MapPut("/branding", async (SchoolBrandingInfo input, ClaimsPrincipal principal, ISchoolAdministrationService service, IAuditWriter audit, ITenantContext tenant, CancellationToken ct) =>
+        {
+            var actor = UserId(principal); await service.UpsertBrandingAsync(actor, input, ct); await audit.WriteAsync(actor, "SchoolBranding.Upsert", tenant.CampusId.HasValue ? "Campus" : "SchoolProfile", (tenant.CampusId ?? tenant.TenantId)!.Value.ToString(), "Succeeded", null, ct); return Results.NoContent();
+        });
+        schools.MapDelete("/branding", async (ClaimsPrincipal principal, ISchoolAdministrationService service, IAuditWriter audit, ITenantContext tenant, CancellationToken ct) =>
+        {
+            var actor = UserId(principal); await service.ClearCampusBrandingAsync(actor, ct); await audit.WriteAsync(actor, "SchoolBranding.ClearOverride", "Campus", tenant.CampusId!.Value.ToString(), "Succeeded", null, ct); return Results.NoContent();
+        });
         schools.MapGet("/current", GetSchoolProfileAsync);
         schools.MapPut("/current", UpsertSchoolProfileAsync);
         schools.MapGet("/campuses", ListCampusesAsync);
         schools.MapPost("/campuses", CreateCampusAsync);
         schools.MapPut("/campuses/{campusId:guid}", UpdateCampusAsync);
-        schools.MapDelete("/campuses/{campusId:guid}", DeactivateCampusAsync);
+        schools.MapDelete("/campuses/{campusId:guid}", DeleteCampusAsync);
 
         var academics = endpoints.MapGroup("/api/v1/academics");
         academics.MapGet("/structure", GetAcademicStructureAsync);
@@ -81,6 +94,15 @@ public static class PhaseOneEndpoints
         academics.MapPost("/departments", CreateDepartmentAsync);
         academics.MapPost("/subjects", CreateSubjectAsync);
         academics.MapPut("/class-subjects", AssignSubjectAsync);
+        academics.MapPut("/years/{id:guid}", (Guid id, AcademicYearInput input, ClaimsPrincipal user, IAcademicStructureService service, CancellationToken ct) => UpdateAcademicAsync("years", id, input, user, service, ct));
+        academics.MapPut("/terms/{id:guid}", (Guid id, AcademicTermInput input, ClaimsPrincipal user, IAcademicStructureService service, CancellationToken ct) => UpdateAcademicAsync("terms", id, input, user, service, ct));
+        academics.MapPut("/education-stages/{id:guid}", (Guid id, EducationStageInput input, ClaimsPrincipal user, IAcademicStructureService service, CancellationToken ct) => UpdateAcademicAsync("education-stages", id, input, user, service, ct));
+        academics.MapPut("/class-levels/{id:guid}", (Guid id, ClassLevelInput input, ClaimsPrincipal user, IAcademicStructureService service, CancellationToken ct) => UpdateAcademicAsync("class-levels", id, input, user, service, ct));
+        academics.MapPut("/class-sections/{id:guid}", (Guid id, ClassSectionInput input, ClaimsPrincipal user, IAcademicStructureService service, CancellationToken ct) => UpdateAcademicAsync("class-sections", id, input, user, service, ct));
+        academics.MapPut("/departments/{id:guid}", (Guid id, DepartmentInput input, ClaimsPrincipal user, IAcademicStructureService service, CancellationToken ct) => UpdateAcademicAsync("departments", id, input, user, service, ct));
+        academics.MapPut("/subjects/{id:guid}", (Guid id, SubjectInput input, ClaimsPrincipal user, IAcademicStructureService service, CancellationToken ct) => UpdateAcademicAsync("subjects", id, input, user, service, ct));
+        academics.MapDelete("/{resource}/{id:guid}", DeleteAcademicAsync);
+        academics.MapDelete("/class-subjects/{id:guid}/{relatedId:guid}", DeleteAcademicAsync);
 
         var hr = endpoints.MapGroup("/api/v1/hr");
         hr.MapGet("/positions", ListPositionsAsync);
@@ -296,8 +318,8 @@ public static class PhaseOneEndpoints
     { var actor = UserId(principal); var id = await service.CreateCampusAsync(actor, input, ct); await audit.WriteAsync(actor, "Campus.Create", "Campus", id.ToString(), "Succeeded", null, ct); return Results.Created($"/api/v1/schools/campuses/{id}", new { id }); }
     private static async Task<IResult> UpdateCampusAsync(Guid campusId, CampusInput input, ClaimsPrincipal principal, ISchoolAdministrationService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); await service.UpdateCampusAsync(actor, campusId, input, ct); await audit.WriteAsync(actor, "Campus.Update", "Campus", campusId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
-    private static async Task<IResult> DeactivateCampusAsync(Guid campusId, ClaimsPrincipal principal, ISchoolAdministrationService service, IAuditWriter audit, CancellationToken ct)
-    { var actor = UserId(principal); await service.DeactivateCampusAsync(actor, campusId, ct); await audit.WriteAsync(actor, "Campus.Deactivate", "Campus", campusId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
+    private static async Task<IResult> DeleteCampusAsync(Guid campusId, ClaimsPrincipal principal, ISchoolAdministrationService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.DeleteCampusAsync(actor, campusId, ct); await audit.WriteAsync(actor, "Campus.Delete", "Campus", campusId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
 
     private static async Task<IResult> GetAcademicStructureAsync(Guid? academicYearId, ClaimsPrincipal principal, IAcademicStructureService service, CancellationToken ct) => Results.Ok(await service.GetAsync(UserId(principal), academicYearId, ct));
     private static async Task<IResult> CreateAcademicYearAsync(AcademicYearInput input, ClaimsPrincipal principal, IAcademicStructureService service, IAuditWriter audit, CancellationToken ct) => await CreatedAsync(await service.CreateAcademicYearAsync(UserId(principal), input, ct), "AcademicYear", "AcademicYear.Create", principal, audit, ct);
@@ -311,6 +333,10 @@ public static class PhaseOneEndpoints
     private static async Task<IResult> CreateSubjectAsync(SubjectInput input, ClaimsPrincipal principal, IAcademicStructureService service, IAuditWriter audit, CancellationToken ct) => await CreatedAsync(await service.CreateSubjectAsync(UserId(principal), input, ct), "Subject", "Subject.Create", principal, audit, ct);
     private static async Task<IResult> AssignSubjectAsync(ClassSubjectInput input, ClaimsPrincipal principal, IAcademicStructureService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); await service.AssignSubjectAsync(actor, input, ct); await audit.WriteAsync(actor, "ClassSubject.Assign", "ClassSection", input.ClassSectionId.ToString(), "Succeeded", JsonSerializer.Serialize(new { input.SubjectId }), ct); return Results.NoContent(); }
+    private static async Task<IResult> UpdateAcademicAsync(string resource, Guid id, object input, ClaimsPrincipal principal, IAcademicStructureService service, CancellationToken ct)
+    { await service.UpdateAsync(UserId(principal), resource, id, input, ct); return Results.NoContent(); }
+    private static async Task<IResult> DeleteAcademicAsync(string resource, Guid id, Guid? relatedId, ClaimsPrincipal principal, IAcademicStructureService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.DeleteAsync(actor, resource, id, relatedId, ct); await audit.WriteAsync(actor, "AcademicStructure.Delete", resource, id.ToString(), "Succeeded", relatedId.HasValue ? JsonSerializer.Serialize(new { relatedId }) : null, ct); return Results.NoContent(); }
 
     private static async Task<IResult> ListPositionsAsync(ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListPositionsAsync(UserId(principal), ct));
     private static async Task<IResult> CreatePositionAsync(PositionInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) => await CreatedHrAsync(await service.CreatePositionAsync(UserId(principal), input, ct), "Position", "Position.Create", principal, audit, ct);

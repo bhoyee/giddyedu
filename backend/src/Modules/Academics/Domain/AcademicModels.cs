@@ -16,6 +16,7 @@ public sealed class AcademicYear : ITenantOwned
     public DateOnly StartsOn { get; private set; } public DateOnly EndsOn { get; private set; } public AcademicPeriodStatus Status { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; } public DateTimeOffset? UpdatedAtUtc { get; private set; }
     public void Activate(DateTimeOffset now) { if (Status == AcademicPeriodStatus.Closed) throw new InvalidOperationException("A closed academic year cannot be reactivated."); Status = AcademicPeriodStatus.Active; UpdatedAtUtc = now; }
+    public void Update(string name, DateOnly startsOn, DateOnly endsOn, DateTimeOffset now) { if (endsOn <= startsOn) throw new ArgumentException("Academic year end date must be after its start date."); Name = Required(name, nameof(name), 100); StartsOn = startsOn; EndsOn = endsOn; UpdatedAtUtc = now; }
     public void Close(DateTimeOffset now) { Status = AcademicPeriodStatus.Closed; UpdatedAtUtc = now; }
     private static void ValidateIds(Guid id, Guid tenantId) { if (id == Guid.Empty || tenantId == Guid.Empty) throw new ArgumentException("Academic year identifiers are required."); }
     private static string Required(string value, string name, int max) => DomainValidation.Required(value, name, max);
@@ -35,6 +36,7 @@ public sealed class AcademicTerm : ITenantOwned
     public string Name { get; private set; } = null!; public string Code { get; private set; } = null!; public int Sequence { get; private set; }
     public DateOnly StartsOn { get; private set; } public DateOnly EndsOn { get; private set; } public AcademicPeriodStatus Status { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
+    public void Update(Guid academicYearId, string name, string code, int sequence, DateOnly startsOn, DateOnly endsOn) { if (academicYearId == Guid.Empty || sequence < 1 || endsOn <= startsOn) throw new ArgumentException("Term sequence and date range are invalid."); AcademicYearId = academicYearId; Name = DomainValidation.Required(name, nameof(name), 100); Code = DomainValidation.Code(code); Sequence = sequence; StartsOn = startsOn; EndsOn = endsOn; }
 }
 
 public sealed class EducationStage : ITenantOwned
@@ -44,6 +46,7 @@ public sealed class EducationStage : ITenantOwned
     { DomainValidation.Ids(id, tenantId); Id = id; TenantId = tenantId; Name = DomainValidation.Required(name, nameof(name), 100); Code = DomainValidation.Code(code); DisplayOrder = displayOrder; IsActive = true; CreatedAtUtc = createdAtUtc; }
     public Guid Id { get; private set; } public Guid TenantId { get; private set; } public string Name { get; private set; } = null!; public string Code { get; private set; } = null!;
     public int DisplayOrder { get; private set; } public bool IsActive { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
+    public void Update(string name, string code, int displayOrder) { Name = DomainValidation.Required(name, nameof(name), 100); Code = DomainValidation.Code(code); DisplayOrder = displayOrder; }
 }
 
 public sealed class ClassLevel : ITenantOwned
@@ -54,6 +57,7 @@ public sealed class ClassLevel : ITenantOwned
     public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid EducationStageId { get; private set; }
     public string Name { get; private set; } = null!; public string Code { get; private set; } = null!; public int DisplayOrder { get; private set; }
     public bool IsActive { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
+    public void Update(Guid stageId, string name, string code, int displayOrder) { if (stageId == Guid.Empty) throw new ArgumentException("Education stage is required."); EducationStageId = stageId; Name = DomainValidation.Required(name, nameof(name), 100); Code = DomainValidation.Code(code); DisplayOrder = displayOrder; }
 }
 
 public sealed class ClassSection : ITenantOwned
@@ -68,6 +72,7 @@ public sealed class ClassSection : ITenantOwned
     }
     public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid CampusId { get; private set; } public Guid AcademicYearId { get; private set; } public Guid ClassLevelId { get; private set; }
     public string Name { get; private set; } = null!; public string Code { get; private set; } = null!; public int? Capacity { get; private set; } public bool IsActive { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
+    public void Update(Guid campusId, Guid yearId, Guid levelId, string name, string code, int? capacity) { if (campusId == Guid.Empty || yearId == Guid.Empty || levelId == Guid.Empty || capacity is <= 0) throw new ArgumentException("Class section details are invalid."); CampusId = campusId; AcademicYearId = yearId; ClassLevelId = levelId; Name = DomainValidation.Required(name, nameof(name), 100); Code = DomainValidation.Code(code); Capacity = capacity; }
 }
 
 public sealed class Department : ITenantOwned
@@ -75,6 +80,7 @@ public sealed class Department : ITenantOwned
     private Department() { }
     public Department(Guid id, Guid tenantId, string name, string code, DateTimeOffset createdAtUtc) { DomainValidation.Ids(id, tenantId); Id = id; TenantId = tenantId; Name = DomainValidation.Required(name, nameof(name), 150); Code = DomainValidation.Code(code); IsActive = true; CreatedAtUtc = createdAtUtc; }
     public Guid Id { get; private set; } public Guid TenantId { get; private set; } public string Name { get; private set; } = null!; public string Code { get; private set; } = null!; public bool IsActive { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
+    public void Update(string name, string code) { Name = DomainValidation.Required(name, nameof(name), 150); Code = DomainValidation.Code(code); }
 }
 
 public sealed class Subject : ITenantOwned
@@ -82,6 +88,7 @@ public sealed class Subject : ITenantOwned
     private Subject() { }
     public Subject(Guid id, Guid tenantId, Guid? departmentId, string name, string code, bool isCore, DateTimeOffset createdAtUtc) { DomainValidation.Ids(id, tenantId); Id = id; TenantId = tenantId; DepartmentId = departmentId; Name = DomainValidation.Required(name, nameof(name), 150); Code = DomainValidation.Code(code); IsCore = isCore; IsActive = true; CreatedAtUtc = createdAtUtc; }
     public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid? DepartmentId { get; private set; } public string Name { get; private set; } = null!; public string Code { get; private set; } = null!; public bool IsCore { get; private set; } public bool IsActive { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
+    public void Update(Guid? departmentId, string name, string code, bool isCore) { DepartmentId = departmentId; Name = DomainValidation.Required(name, nameof(name), 150); Code = DomainValidation.Code(code); IsCore = isCore; }
 }
 
 public sealed class ClassSubject : ITenantOwned
@@ -89,6 +96,7 @@ public sealed class ClassSubject : ITenantOwned
     private ClassSubject() { }
     public ClassSubject(Guid tenantId, Guid classSectionId, Guid subjectId, bool isCompulsory) { if (tenantId == Guid.Empty || classSectionId == Guid.Empty || subjectId == Guid.Empty) throw new ArgumentException("Class-subject identifiers are required."); TenantId = tenantId; ClassSectionId = classSectionId; SubjectId = subjectId; IsCompulsory = isCompulsory; }
     public Guid TenantId { get; private set; } public Guid ClassSectionId { get; private set; } public Guid SubjectId { get; private set; } public bool IsCompulsory { get; private set; }
+    public void Update(bool isCompulsory) => IsCompulsory = isCompulsory;
 }
 
 internal static class DomainValidation

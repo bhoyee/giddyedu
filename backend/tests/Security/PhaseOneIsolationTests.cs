@@ -44,7 +44,7 @@ public sealed class PhaseOneIsolationTests
     {
         await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
         var deniedAcademics = new AcademicStructureService(fixture.Db, fixture.Context, new DeniedAccess(), fixture.Clock);
-        var deniedSchools = new SchoolAdministrationService(fixture.Db, fixture.Context, new DeniedAccess(), fixture.Clock);
+        var deniedSchools = new SchoolAdministrationService(fixture.Db, fixture.Context, new DeniedAccess(), new UnusedFileService(), fixture.Clock);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => deniedAcademics.GetAsync(Guid.NewGuid()));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => deniedSchools.ListCampusesAsync(Guid.NewGuid()));
     }
@@ -53,7 +53,7 @@ public sealed class PhaseOneIsolationTests
     public async Task SchoolAdministration_PreservesAtLeastOneActiveCampus()
     {
         await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Schools().DeactivateCampusAsync(Guid.NewGuid(), fixture.CampusA));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Schools().DeleteCampusAsync(Guid.NewGuid(), fixture.CampusA));
     }
 
     [Fact]
@@ -217,7 +217,7 @@ public sealed class PhaseOneIsolationTests
         { Db = db; Context = context; TenantA = tenantA; TenantB = tenantB; CampusA = campusA; Clock = clock; }
         public GiddyEduDbContext Db { get; } public TenantContextAccessor Context { get; } public Guid TenantA { get; } public Guid TenantB { get; } public Guid CampusA { get; } public SystemClock Clock { get; }
         public AcademicStructureService Academics() => new(Db, Context, new AllowedAccess(), Clock);
-        public SchoolAdministrationService Schools() => new(Db, Context, new AllowedAccess(), Clock);
+        public SchoolAdministrationService Schools() => new(Db, Context, new AllowedAccess(), new UnusedFileService(), Clock);
         public StaffService Staff(IPermissionService? permissions = null) => new(Db, Context, new AllowedAccess(), permissions ?? new AllowedPermissions(), Clock);
         public StudentLifecycleService Students(IPermissionService? permissions = null) => new(Db, Context, new AllowedAccess(), permissions ?? new AllowedPermissions(), Clock);
         public ValueTask DisposeAsync() => Db.DisposeAsync();
@@ -249,6 +249,7 @@ public sealed class PhaseOneIsolationTests
     {
         public Task<FileUpload> BeginUploadAsync(string fileName, string contentType, long sizeBytes, string category, string entityType, Guid entityId, Guid userId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task CompleteUploadAsync(Guid fileId, string checksum, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task UploadContentAsync(Guid fileId, Stream content, string contentType, long? contentLength, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<string> CreateDownloadUrlAsync(Guid fileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task DeleteAsync(Guid fileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }

@@ -45,6 +45,7 @@ public static class FoundationEndpoints
         group.MapPut("/custom-fields/{definitionId:guid}/values/{entityId:guid}", UpsertCustomFieldValueAsync);
         group.MapGet("/custom-field-values/{entityType}/{entityId:guid}", GetCustomFieldValuesAsync);
         group.MapPost("/files", BeginFileAsync);
+        group.MapPut("/files/{fileId:guid}/content", UploadFileContentAsync).DisableAntiforgery();
         group.MapPost("/files/{fileId:guid}/complete", CompleteFileAsync);
         group.MapGet("/files/{fileId:guid}/download", DownloadFileAsync);
         group.MapDelete("/files/{fileId:guid}", DeleteFileAsync);
@@ -116,6 +117,13 @@ public static class FoundationEndpoints
     private static async Task<IResult> CompleteFileAsync(Guid fileId, CompleteFileUploadRequest request, ClaimsPrincipal principal, IPermissionService permissions, IFileService files, IAuditWriter audit, CancellationToken ct)
     {
         var userId = UserId(principal); if (!await permissions.HasPermissionAsync(userId, Permissions.FilesManage, ct)) return Results.Forbid(); await files.CompleteUploadAsync(fileId, request.Checksum, ct); await audit.WriteAsync(userId, "File.CompleteUpload", "StoredFile", fileId.ToString(), "Succeeded", null, ct); return Results.NoContent();
+    }
+    private static async Task<IResult> UploadFileContentAsync(Guid fileId, HttpRequest request, ClaimsPrincipal principal, IPermissionService permissions, IFileService files, CancellationToken ct)
+    {
+        var userId = UserId(principal); if (!await permissions.HasPermissionAsync(userId, Permissions.FilesManage, ct)) return Results.Forbid();
+        var contentType = request.ContentType ?? throw new ArgumentException("Content-Type is required.");
+        await files.UploadContentAsync(fileId, request.Body, contentType, request.ContentLength, ct);
+        return Results.NoContent();
     }
     private static async Task<IResult> DownloadFileAsync(Guid fileId, ClaimsPrincipal principal, IPermissionService permissions, IFileService files, IAuditWriter audit, CancellationToken ct)
     {

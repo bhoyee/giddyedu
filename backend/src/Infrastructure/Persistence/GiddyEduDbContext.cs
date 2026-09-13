@@ -224,6 +224,8 @@ public sealed class GiddyEduDbContext(
             e.Property(x => x.DateFormat).HasMaxLength(20); e.Property(x => x.TimeFormat).HasMaxLength(20); e.Property(x => x.CustomDomain).HasMaxLength(253);
             e.HasIndex(x => x.CustomDomain).IsUnique().HasFilter("\"CustomDomain\" IS NOT NULL");
             e.Property(x => x.PrimaryColor).HasMaxLength(7); e.Property(x => x.SecondaryColor).HasMaxLength(7);
+            e.HasOne<StoredFile>().WithMany().HasForeignKey(x => new { x.TenantId, Id = x.LogoFileId }).HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<StoredFile>().WithMany().HasForeignKey(x => new { x.TenantId, Id = x.PrincipalSignatureFileId }).HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Tenant>().WithOne().HasForeignKey<SchoolProfile>(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
         });
     }

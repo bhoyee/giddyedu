@@ -41,6 +41,8 @@ public interface IAcademicStructureService
     Task<Guid> CreateDepartmentAsync(Guid actorUserId, DepartmentInput input, CancellationToken cancellationToken = default);
     Task<Guid> CreateSubjectAsync(Guid actorUserId, SubjectInput input, CancellationToken cancellationToken = default);
     Task AssignSubjectAsync(Guid actorUserId, ClassSubjectInput input, CancellationToken cancellationToken = default);
+    Task UpdateAsync(Guid actorUserId, string resource, Guid id, object input, CancellationToken cancellationToken = default);
+    Task DeleteAsync(Guid actorUserId, string resource, Guid id, Guid? relatedId = null, CancellationToken cancellationToken = default);
 }
 
 public sealed class AcademicStructureService(GiddyEduDbContext db, ITenantContext tenant, IFeatureAccessGuard access, IClock clock) : IAcademicStructureService
@@ -97,7 +99,50 @@ public sealed class AcademicStructureService(GiddyEduDbContext db, ITenantContex
     { await ManageAsync(actor, ct); if (input.DepartmentId.HasValue && !await db.Departments.AnyAsync(x => x.Id == input.DepartmentId && x.IsActive, ct)) throw new KeyNotFoundException("Department was not found."); var id = Guid.NewGuid(); db.Subjects.Add(new Subject(id, RequireTenant(), input.DepartmentId, input.Name, input.Code, input.IsCore, clock.UtcNow)); await db.SaveChangesAsync(ct); return id; }
 
     public async Task AssignSubjectAsync(Guid actor, ClassSubjectInput input, CancellationToken ct = default)
-    { await ManageAsync(actor, ct); if (!await db.ClassSections.AnyAsync(x => x.Id == input.ClassSectionId && x.IsActive, ct) || !await db.Subjects.AnyAsync(x => x.Id == input.SubjectId && x.IsActive, ct)) throw new InvalidOperationException("Class section and subject must belong to the current tenant and be active."); if (await db.ClassSubjects.AnyAsync(x => x.ClassSectionId == input.ClassSectionId && x.SubjectId == input.SubjectId, ct)) return; db.ClassSubjects.Add(new ClassSubject(RequireTenant(), input.ClassSectionId, input.SubjectId, input.IsCompulsory)); await db.SaveChangesAsync(ct); }
+    { await ManageAsync(actor, ct); if (!await db.ClassSections.AnyAsync(x => x.Id == input.ClassSectionId && x.IsActive, ct) || !await db.Subjects.AnyAsync(x => x.Id == input.SubjectId && x.IsActive, ct)) throw new InvalidOperationException("Class section and subject must belong to the current tenant and be active."); var existing = await db.ClassSubjects.SingleOrDefaultAsync(x => x.ClassSectionId == input.ClassSectionId && x.SubjectId == input.SubjectId, ct); if (existing is null) db.ClassSubjects.Add(new ClassSubject(RequireTenant(), input.ClassSectionId, input.SubjectId, input.IsCompulsory)); else existing.Update(input.IsCompulsory); await db.SaveChangesAsync(ct); }
+
+    public async Task UpdateAsync(Guid actor, string resource, Guid id, object input, CancellationToken ct = default)
+    {
+        await ManageAsync(actor, ct);
+        switch (resource)
+        {
+            case "years": { var value = (AcademicYearInput)input; var entity = await db.AcademicYears.SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw Missing(); if (await db.AcademicTerms.AnyAsync(x => x.AcademicYearId == id && (x.StartsOn < value.StartsOn || x.EndsOn > value.EndsOn), ct)) throw new InvalidOperationException("Existing term dates must remain within the academic year."); entity.Update(value.Name, value.StartsOn, value.EndsOn, clock.UtcNow); break; }
+            case "terms": { var value = (AcademicTermInput)input; var entity = await db.AcademicTerms.SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw Missing(); await ValidateTermAsync(value, id, ct); entity.Update(value.AcademicYearId, value.Name, value.Code, value.Sequence, value.StartsOn, value.EndsOn); break; }
+            case "education-stages": { var value = (EducationStageInput)input; var entity = await db.EducationStages.SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw Missing(); entity.Update(value.Name, value.Code, value.DisplayOrder); break; }
+            case "class-levels": { var value = (ClassLevelInput)input; if (!await db.EducationStages.AnyAsync(x => x.Id == value.EducationStageId, ct)) throw Missing(); var entity = await db.ClassLevels.SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw Missing(); entity.Update(value.EducationStageId, value.Name, value.Code, value.DisplayOrder); break; }
+            case "class-sections": { var value = (ClassSectionInput)input; if (!await db.Campuses.AnyAsync(x => x.Id == value.CampusId, ct) || !await db.AcademicYears.AnyAsync(x => x.Id == value.AcademicYearId, ct) || !await db.ClassLevels.AnyAsync(x => x.Id == value.ClassLevelId, ct)) throw Missing(); var entity = await db.ClassSections.SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw Missing(); entity.Update(value.CampusId, value.AcademicYearId, value.ClassLevelId, value.Name, value.Code, value.Capacity); break; }
+            case "departments": { var value = (DepartmentInput)input; var entity = await db.Departments.SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw Missing(); entity.Update(value.Name, value.Code); break; }
+            case "subjects": { var value = (SubjectInput)input; if (value.DepartmentId.HasValue && !await db.Departments.AnyAsync(x => x.Id == value.DepartmentId, ct)) throw Missing(); var entity = await db.Subjects.SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw Missing(); entity.Update(value.DepartmentId, value.Name, value.Code, value.IsCore); break; }
+            default: throw new ArgumentException("Unsupported academic resource.", nameof(resource));
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteAsync(Guid actor, string resource, Guid id, Guid? relatedId = null, CancellationToken ct = default)
+    {
+        await ManageAsync(actor, ct);
+        var affected = resource switch
+        {
+            "years" when !await db.AcademicTerms.AnyAsync(x => x.AcademicYearId == id, ct) && !await db.ClassSections.AnyAsync(x => x.AcademicYearId == id, ct) => await db.AcademicYears.Where(x => x.Id == id).ExecuteDeleteAsync(ct),
+            "terms" => await db.AcademicTerms.Where(x => x.Id == id).ExecuteDeleteAsync(ct),
+            "education-stages" when !await db.ClassLevels.AnyAsync(x => x.EducationStageId == id, ct) => await db.EducationStages.Where(x => x.Id == id).ExecuteDeleteAsync(ct),
+            "class-levels" when !await db.ClassSections.AnyAsync(x => x.ClassLevelId == id, ct) => await db.ClassLevels.Where(x => x.Id == id).ExecuteDeleteAsync(ct),
+            "class-sections" when !await db.Enrollments.AnyAsync(x => x.ClassSectionId == id, ct) => await db.ClassSections.Where(x => x.Id == id).ExecuteDeleteAsync(ct),
+            "departments" when !await db.Subjects.AnyAsync(x => x.DepartmentId == id, ct) && !await db.StaffProfiles.AnyAsync(x => x.DepartmentId == id, ct) => await db.Departments.Where(x => x.Id == id).ExecuteDeleteAsync(ct),
+            "subjects" when !await db.ClassSubjects.AnyAsync(x => x.SubjectId == id, ct) && !await db.TeachingAssignments.AnyAsync(x => x.SubjectId == id, ct) => await db.Subjects.Where(x => x.Id == id).ExecuteDeleteAsync(ct),
+            "class-subjects" when relatedId.HasValue => await db.ClassSubjects.Where(x => x.ClassSectionId == id && x.SubjectId == relatedId.Value).ExecuteDeleteAsync(ct),
+            _ => throw new InvalidOperationException("This item is in use. Remove its dependent records before deleting it.")
+        };
+        if (affected == 0) throw new KeyNotFoundException("Academic structure item was not found.");
+    }
+
+    private async Task ValidateTermAsync(AcademicTermInput input, Guid? exceptId, CancellationToken ct)
+    {
+        var year = await db.AcademicYears.SingleOrDefaultAsync(x => x.Id == input.AcademicYearId, ct) ?? throw Missing();
+        if (input.StartsOn < year.StartsOn || input.EndsOn > year.EndsOn) throw new ArgumentException("Term dates must fall within the academic year.");
+        if (await db.AcademicTerms.AnyAsync(x => x.Id != exceptId && x.AcademicYearId == input.AcademicYearId && x.StartsOn <= input.EndsOn && x.EndsOn >= input.StartsOn, ct)) throw new InvalidOperationException("Term dates cannot overlap.");
+    }
+    private static KeyNotFoundException Missing() => new("Academic structure item was not found.");
 
     private Task ManageAsync(Guid actor, CancellationToken ct) => DemandAsync(actor, Permissions.AcademicsManage, ct);
     private Task DemandAsync(Guid actor, string permission, CancellationToken ct) => access.DemandAsync(actor, permission, FeatureKeys.AcademicStructure, ct);

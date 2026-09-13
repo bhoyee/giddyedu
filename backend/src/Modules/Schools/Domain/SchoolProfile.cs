@@ -11,7 +11,7 @@ public sealed class SchoolProfile : ITenantOwned
         if (tenantId == Guid.Empty) throw new ArgumentException("A tenant identifier is required.", nameof(tenantId));
         TenantId = tenantId;
         CreatedAtUtc = createdAtUtc;
-        Update(displayName, schoolType, legalName, null, null, null, null, null, null, null, countryCode, timeZone, currencyCode, "dd/MM/yyyy", "HH:mm", null, null, null, null, createdAtUtc);
+        Update(displayName, schoolType, legalName, null, null, null, null, null, null, null, countryCode, timeZone, currencyCode, "dd/MM/yyyy", "HH:mm", null, null, null, null, null, createdAtUtc);
         UpdatedAtUtc = null;
     }
 
@@ -33,6 +33,7 @@ public sealed class SchoolProfile : ITenantOwned
     public string TimeFormat { get; private set; } = null!;
     public string? CustomDomain { get; private set; }
     public Guid? LogoFileId { get; private set; }
+    public Guid? PrincipalSignatureFileId { get; private set; }
     public string? PrimaryColor { get; private set; }
     public string? SecondaryColor { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
@@ -40,7 +41,7 @@ public sealed class SchoolProfile : ITenantOwned
 
     public void Update(string displayName, string schoolType, string? legalName, string? tagline, string? email, string? phone, string? websiteUrl, string? address,
         string? state, string? localGovernment, string countryCode, string timeZone, string currencyCode, string dateFormat, string timeFormat, string? customDomain,
-        Guid? logoFileId, string? primaryColor, string? secondaryColor, DateTimeOffset updatedAtUtc)
+        Guid? logoFileId, Guid? principalSignatureFileId, string? primaryColor, string? secondaryColor, DateTimeOffset updatedAtUtc)
     {
         DisplayName = Required(displayName, nameof(displayName), 200);
         SchoolType = Required(schoolType, nameof(schoolType), 50);
@@ -53,7 +54,16 @@ public sealed class SchoolProfile : ITenantOwned
         DateFormat = Required(dateFormat, nameof(dateFormat), 20);
         TimeFormat = Required(timeFormat, nameof(timeFormat), 20);
         CustomDomain = Optional(customDomain, 253)?.ToLowerInvariant();
-        LogoFileId = logoFileId; PrimaryColor = Optional(primaryColor, 7); SecondaryColor = Optional(secondaryColor, 7); UpdatedAtUtc = updatedAtUtc;
+        LogoFileId = logoFileId; PrincipalSignatureFileId = principalSignatureFileId; PrimaryColor = Optional(primaryColor, 7); SecondaryColor = Optional(secondaryColor, 7); UpdatedAtUtc = updatedAtUtc;
+    }
+
+    public void UpdateBranding(Guid? logoFileId, Guid? principalSignatureFileId, string? primaryColor, string? secondaryColor, DateTimeOffset updatedAtUtc)
+    {
+        LogoFileId = logoFileId;
+        PrincipalSignatureFileId = principalSignatureFileId;
+        PrimaryColor = Optional(primaryColor, 7);
+        SecondaryColor = Optional(secondaryColor, 7);
+        UpdatedAtUtc = updatedAtUtc;
     }
 
     private static string Required(string value, string name, int max) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > max

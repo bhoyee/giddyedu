@@ -47,6 +47,7 @@ public interface IFileObjectStorage
     string CreateDownloadUrl(string objectKey);
     Task<bool> ExistsAsync(string objectKey, CancellationToken cancellationToken);
     Task DeleteAsync(string objectKey, CancellationToken cancellationToken);
+    Task UploadAsync(string objectKey, string contentType, Stream content, CancellationToken cancellationToken);
     Task<string> ReadTextAsync(string objectKey, long maximumBytes, CancellationToken cancellationToken);
     Task WriteTextAsync(string objectKey, string contentType, string value, CancellationToken cancellationToken);
 }
@@ -62,6 +63,17 @@ public sealed class R2FileObjectStorage(IAmazonS3 client, IOptions<R2Options> op
         catch (AmazonS3Exception exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound) { return false; }
     }
     public Task DeleteAsync(string objectKey, CancellationToken cancellationToken) => client.DeleteObjectAsync(settings.Bucket, objectKey, cancellationToken);
+    public async Task UploadAsync(string objectKey, string contentType, Stream content, CancellationToken cancellationToken)
+    {
+        await client.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = settings.Bucket,
+            Key = objectKey,
+            ContentType = contentType,
+            InputStream = content,
+            UseChunkEncoding = false
+        }, cancellationToken);
+    }
     public async Task<string> ReadTextAsync(string objectKey, long maximumBytes, CancellationToken cancellationToken)
     {
         if (maximumBytes <= 0) throw new ArgumentOutOfRangeException(nameof(maximumBytes));

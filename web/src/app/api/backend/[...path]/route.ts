@@ -14,14 +14,16 @@ async function forward(request: NextRequest, context: RouteContext) {
   const refreshToken = cookieStore.get("giddyedu_refresh")?.value;
   if (!accessToken && refreshToken) { refreshed = await refreshAuthentication(refreshToken); accessToken = refreshed?.accessToken; }
   if (!accessToken) return NextResponse.json({ message: "Authentication required." }, { status: 401 });
-  const body = request.method === "GET" ? undefined : await request.text();
+  const body = request.method === "GET" ? undefined : await request.arrayBuffer();
   const target = new URL(apiUrl(`/api/v1/${segments.join("/")}`)); target.search = request.nextUrl.search;
   const send = (token: string) => fetch(target, { method: request.method, headers: { Authorization: `Bearer ${token}`, "Content-Type": request.headers.get("content-type") ?? "application/json", "X-Correlation-ID": request.headers.get("x-correlation-id") ?? crypto.randomUUID() }, body, cache: "no-store" });
   let upstream = await send(accessToken);
   if (upstream.status === 401 && refreshToken && !refreshed) { refreshed = await refreshAuthentication(refreshToken); if (refreshed) upstream = await send(refreshed.accessToken); }
   const contentType = upstream.headers.get("content-type") ?? "";
   let response: NextResponse;
-  if (contentType.includes("application/json") || contentType.includes("application/problem+json")) {
+  if (upstream.status === 204 || upstream.status === 205) {
+    response = new NextResponse(null, { status: upstream.status });
+  } else if (contentType.includes("application/json") || contentType.includes("application/problem+json")) {
     const payload = await parseApiResponse(upstream); response = payload === null ? new NextResponse(null, { status: upstream.status }) : NextResponse.json(payload, { status: upstream.status });
   } else {
     response = new NextResponse(await upstream.arrayBuffer(), { status: upstream.status, headers: { "Content-Type": contentType || "application/octet-stream" } });

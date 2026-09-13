@@ -1,8 +1,10 @@
 using System.Net.Mail;
+using System.Text.Json;
 using GiddyEdu.BuildingBlocks.Tenancy;
 using GiddyEdu.BuildingBlocks.Time;
 using GiddyEdu.Infrastructure.Authorization;
 using GiddyEdu.Infrastructure.Persistence;
+using GiddyEdu.Infrastructure.Storage;
 using GiddyEdu.Modules.Identity;
 using GiddyEdu.Modules.Subscriptions;
 using GiddyEdu.Modules.Platform.Domain;
@@ -14,35 +16,85 @@ namespace GiddyEdu.Infrastructure.Schools;
 
 public sealed record SchoolProfileInput(string DisplayName, string SchoolSlug, string SchoolType, string? LegalName, string? Tagline, string? Email, string? Phone, string? WebsiteUrl, string? Address,
     string? State, string? LocalGovernment, string CountryCode, string TimeZone, string CurrencyCode, string DateFormat, string TimeFormat, string? CustomDomain,
-    Guid? LogoFileId, string? PrimaryColor, string? SecondaryColor);
+    Guid? LogoFileId, Guid? PrincipalSignatureFileId, string? PrimaryColor, string? SecondaryColor);
 public sealed record SchoolProfileInfo(string DisplayName, string SchoolSlug, string SchoolType, string? LegalName, string? Tagline, string? Email, string? Phone, string? WebsiteUrl, string? Address,
     string? State, string? LocalGovernment, string CountryCode, string TimeZone, string CurrencyCode, string DateFormat, string TimeFormat, string? CustomDomain,
-    Guid? LogoFileId, string? PrimaryColor, string? SecondaryColor);
+    Guid? LogoFileId, Guid? PrincipalSignatureFileId, string? PrimaryColor, string? SecondaryColor, string? LogoUrl);
+public sealed record SchoolBrandingInfo(string DisplayName, string Scope, string? PrimaryColor, string? SecondaryColor, Guid? LogoFileId, Guid? PrincipalSignatureFileId, string? LogoUrl);
 public sealed record CampusInput(string Name, string Code, bool IsMainCampus);
 public sealed record CampusInfo(Guid Id, string Name, string Code, bool IsMainCampus, bool IsActive, DateTimeOffset CreatedAtUtc, DateTimeOffset? UpdatedAtUtc);
 
 public interface ISchoolAdministrationService
 {
     Task<SchoolProfileInfo?> GetProfileAsync(Guid actorUserId, CancellationToken cancellationToken = default);
+    Task<SchoolBrandingInfo?> GetBrandingAsync(CancellationToken cancellationToken = default);
+    Task UpsertBrandingAsync(Guid actorUserId, SchoolBrandingInfo input, CancellationToken cancellationToken = default);
+    Task ClearCampusBrandingAsync(Guid actorUserId, CancellationToken cancellationToken = default);
     Task UpsertProfileAsync(Guid actorUserId, SchoolProfileInput input, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<CampusInfo>> ListCampusesAsync(Guid actorUserId, CancellationToken cancellationToken = default);
     Task<Guid> CreateCampusAsync(Guid actorUserId, CampusInput input, CancellationToken cancellationToken = default);
     Task UpdateCampusAsync(Guid actorUserId, Guid campusId, CampusInput input, CancellationToken cancellationToken = default);
-    Task DeactivateCampusAsync(Guid actorUserId, Guid campusId, CancellationToken cancellationToken = default);
+    Task DeleteCampusAsync(Guid actorUserId, Guid campusId, CancellationToken cancellationToken = default);
 }
 
-public sealed class SchoolAdministrationService(GiddyEduDbContext db, ITenantContext tenant, IFeatureAccessGuard access, IClock clock) : ISchoolAdministrationService
+public sealed class SchoolAdministrationService(GiddyEduDbContext db, ITenantContext tenant, IFeatureAccessGuard access, IFileService files, IClock clock) : ISchoolAdministrationService
 {
+    public async Task<SchoolBrandingInfo?> GetBrandingAsync(CancellationToken ct = default)
+    {
+        var profile = await db.SchoolProfiles.AsNoTracking().Select(x => new { x.DisplayName, x.PrimaryColor, x.SecondaryColor, x.LogoFileId, x.PrincipalSignatureFileId }).SingleOrDefaultAsync(ct);
+        if (profile is null) return null;
+        var effective = new SchoolBrandingInfo(profile.DisplayName, "Tenant", profile.PrimaryColor, profile.SecondaryColor, profile.LogoFileId, profile.PrincipalSignatureFileId, null);
+        if (tenant.CampusId.HasValue)
+        {
+            var json = await db.CampusSettings.AsNoTracking().Where(x => x.CampusId == tenant.CampusId && x.Key == "school.branding").Select(x => x.ValueJson).SingleOrDefaultAsync(ct);
+            if (json is not null && JsonSerializer.Deserialize<SchoolBrandingInfo>(json) is { } campus) effective = campus with { DisplayName = profile.DisplayName, Scope = "Campus" };
+        }
+        var logoUrl = effective.LogoFileId.HasValue ? await files.CreateDownloadUrlAsync(effective.LogoFileId.Value, ct) : null;
+        return effective with { LogoUrl = logoUrl };
+    }
+
+    public async Task UpsertBrandingAsync(Guid actorUserId, SchoolBrandingInfo input, CancellationToken ct = default)
+    {
+        await DemandAsync(actorUserId, Permissions.SchoolsManage, ct); var tenantId = RequireTenant();
+        ValidateColor(input.PrimaryColor, nameof(input.PrimaryColor)); ValidateColor(input.SecondaryColor, nameof(input.SecondaryColor));
+        var entityId = tenant.CampusId ?? tenantId;
+        if (input.LogoFileId.HasValue && !await IsValidBrandAssetAsync(input.LogoFileId.Value, "branding-logo", tenantId, entityId, ct)) throw new ArgumentException("Invalid school logo.", nameof(input));
+        if (input.PrincipalSignatureFileId.HasValue && !await IsValidBrandAssetAsync(input.PrincipalSignatureFileId.Value, "principal-signature", tenantId, entityId, ct)) throw new ArgumentException("Invalid principal signature.", nameof(input));
+        if (!tenant.CampusId.HasValue)
+        {
+            var profile = await db.SchoolProfiles.SingleAsync(ct); profile.UpdateBranding(input.LogoFileId, input.PrincipalSignatureFileId, input.PrimaryColor, input.SecondaryColor, clock.UtcNow);
+        }
+        else
+        {
+            var value = JsonSerializer.Serialize(input with { DisplayName = string.Empty, Scope = "Campus", LogoUrl = null });
+            var setting = await db.CampusSettings.SingleOrDefaultAsync(x => x.CampusId == tenant.CampusId && x.Key == "school.branding", ct);
+            if (setting is null) db.CampusSettings.Add(new CampusSetting(tenantId, tenant.CampusId.Value, "school.branding", value, clock.UtcNow)); else setting.Update(value, clock.UtcNow);
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task ClearCampusBrandingAsync(Guid actorUserId, CancellationToken ct = default)
+    {
+        await DemandAsync(actorUserId, Permissions.SchoolsManage, ct);
+        if (!tenant.CampusId.HasValue) throw new InvalidOperationException("A campus workspace is required.");
+        var setting = await db.CampusSettings.SingleOrDefaultAsync(x => x.CampusId == tenant.CampusId && x.Key == "school.branding", ct);
+        if (setting is not null) { db.CampusSettings.Remove(setting); await db.SaveChangesAsync(ct); }
+    }
+
     public async Task<SchoolProfileInfo?> GetProfileAsync(Guid actorUserId, CancellationToken ct = default)
     {
         await DemandAsync(actorUserId, Permissions.SchoolsView, ct);
         var currentTenant = await db.Tenants.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(x => x.Id == RequireTenant(), ct);
         if (currentTenant is null) return null;
         var profile = await db.SchoolProfiles.AsNoTracking().Select(x => new SchoolProfileInfo(x.DisplayName, currentTenant.Slug, x.SchoolType, x.LegalName, x.Tagline, x.Email, x.Phone, x.WebsiteUrl, x.Address,
-            x.State, x.LocalGovernment, x.CountryCode, x.TimeZone, x.CurrencyCode, x.DateFormat, x.TimeFormat, x.CustomDomain, x.LogoFileId, x.PrimaryColor, x.SecondaryColor)).SingleOrDefaultAsync(ct);
-        if (profile is not null) return profile;
+            x.State, x.LocalGovernment, x.CountryCode, x.TimeZone, x.CurrencyCode, x.DateFormat, x.TimeFormat, x.CustomDomain, x.LogoFileId, x.PrincipalSignatureFileId, x.PrimaryColor, x.SecondaryColor, null)).SingleOrDefaultAsync(ct);
+        if (profile is not null)
+        {
+            var logoUrl = profile.LogoFileId.HasValue ? await files.CreateDownloadUrlAsync(profile.LogoFileId.Value, ct) : null;
+            return profile with { LogoUrl = logoUrl };
+        }
         return new SchoolProfileInfo(currentTenant.Name, currentTenant.Slug, "Not specified", currentTenant.Name, null, null, null, null, null, null, null,
-            "NG", "Africa/Lagos", "NGN", "dd/MM/yyyy", "HH:mm", null, null, "#12372A", "#10B981");
+            "NG", "Africa/Lagos", "NGN", "dd/MM/yyyy", "HH:mm", null, null, null, "#12372A", "#10B981", null);
     }
 
     public async Task UpsertProfileAsync(Guid actorUserId, SchoolProfileInput input, CancellationToken ct = default)
@@ -55,8 +107,10 @@ public sealed class SchoolAdministrationService(GiddyEduDbContext db, ITenantCon
             throw new ArgumentException("Custom domain is already in use.", nameof(input));
         var currentTenant = await db.Tenants.IgnoreQueryFilters().SingleAsync(x => x.Id == tenantId, ct);
         currentTenant.UpdateIdentity(input.DisplayName, schoolSlug, clock.UtcNow);
-        if (input.LogoFileId.HasValue && !await db.StoredFiles.AnyAsync(x => x.Id == input.LogoFileId && x.Status == StoredFileStatus.Available, ct))
-            throw new ArgumentException("LogoFileId must reference an available file owned by the current tenant.", nameof(input));
+        if (input.LogoFileId.HasValue && !await IsValidBrandAssetAsync(input.LogoFileId.Value, "branding-logo", tenantId, tenantId, ct))
+            throw new ArgumentException("LogoFileId must reference an available PNG or JPEG school logo owned by the current tenant.", nameof(input));
+        if (input.PrincipalSignatureFileId.HasValue && !await IsValidBrandAssetAsync(input.PrincipalSignatureFileId.Value, "principal-signature", tenantId, tenantId, ct))
+            throw new ArgumentException("PrincipalSignatureFileId must reference an available PNG or JPEG principal signature owned by the current tenant.", nameof(input));
         var profile = await db.SchoolProfiles.SingleOrDefaultAsync(ct);
         if (profile is null)
         {
@@ -65,7 +119,7 @@ public sealed class SchoolAdministrationService(GiddyEduDbContext db, ITenantCon
         }
         profile.Update(input.DisplayName, input.SchoolType, input.LegalName, input.Tagline, input.Email, input.Phone, input.WebsiteUrl, input.Address,
             input.State, input.LocalGovernment, input.CountryCode, input.TimeZone, input.CurrencyCode, input.DateFormat, input.TimeFormat, customDomain,
-            input.LogoFileId, input.PrimaryColor, input.SecondaryColor, clock.UtcNow);
+            input.LogoFileId, input.PrincipalSignatureFileId, input.PrimaryColor, input.SecondaryColor, clock.UtcNow);
         await db.SaveChangesAsync(ct);
     }
 
@@ -90,12 +144,30 @@ public sealed class SchoolAdministrationService(GiddyEduDbContext db, ITenantCon
         campus.Update(input.Name, input.Code, input.IsMainCampus, clock.UtcNow); await db.SaveChangesAsync(ct);
     }
 
-    public async Task DeactivateCampusAsync(Guid actorUserId, Guid campusId, CancellationToken ct = default)
+    public async Task DeleteCampusAsync(Guid actorUserId, Guid campusId, CancellationToken ct = default)
     {
         await DemandAsync(actorUserId, Permissions.SchoolsManage, ct);
         var campus = await db.Campuses.SingleOrDefaultAsync(x => x.Id == campusId, ct) ?? throw new KeyNotFoundException("Campus was not found.");
-        if (await db.Campuses.CountAsync(x => x.IsActive, ct) <= 1) throw new InvalidOperationException("A school must retain at least one active campus.");
-        campus.Deactivate(clock.UtcNow); await db.SaveChangesAsync(ct);
+        if (await db.Campuses.CountAsync(ct) <= 1) throw new InvalidOperationException("A school must retain at least one campus.");
+        if (tenant.CampusId == campusId) throw new InvalidOperationException("Switch to another campus workspace before deleting the current campus.");
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var sectionIds = await db.ClassSections.Where(x => x.CampusId == campusId).Select(x => x.Id).ToListAsync(ct);
+        var enrollmentIds = await db.Enrollments.Where(x => sectionIds.Contains(x.ClassSectionId)).Select(x => x.Id).ToListAsync(ct);
+        var staffIds = await db.StaffProfiles.Where(x => x.CampusId == campusId).Select(x => x.Id).ToListAsync(ct);
+        var ownedEntityIds = sectionIds.Concat(enrollmentIds).Concat(staffIds).Append(campusId).ToArray();
+        var storedFileIds = await db.StoredFiles.Where(x => ownedEntityIds.Contains(x.EntityId)).Select(x => x.Id).ToListAsync(ct);
+        foreach (var fileId in storedFileIds) await files.DeleteAsync(fileId, ct);
+        await db.StudentProgressions.Where(x => enrollmentIds.Contains(x.FromEnrollmentId) || enrollmentIds.Contains(x.ToEnrollmentId)).ExecuteDeleteAsync(ct);
+        await db.Enrollments.Where(x => enrollmentIds.Contains(x.Id)).ExecuteDeleteAsync(ct);
+        await db.TeachingAssignments.Where(x => sectionIds.Contains(x.ClassSectionId)).ExecuteDeleteAsync(ct);
+        await db.ClassSections.Where(x => x.CampusId == campusId).ExecuteDeleteAsync(ct);
+        await db.StaffProfiles.Where(x => x.CampusId == campusId).ExecuteDeleteAsync(ct);
+        await db.CampusSettings.Where(x => x.CampusId == campusId).ExecuteDeleteAsync(ct);
+        await db.CampusEntitlementOverrides.Where(x => x.CampusId == campusId).ExecuteDeleteAsync(ct);
+        await db.RefreshTokens.Where(x => x.CampusId == campusId).ExecuteDeleteAsync(ct);
+        db.Campuses.Remove(campus);
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
     }
 
     private static void Validate(SchoolProfileInput input)
@@ -124,6 +196,9 @@ public sealed class SchoolAdministrationService(GiddyEduDbContext db, ITenantCon
         var existing = await db.Campuses.Where(x => x.IsMainCampus && (!exceptCampusId.HasValue || x.Id != exceptCampusId.Value)).ToListAsync(ct);
         foreach (var campus in existing) campus.SetMainCampus(false, clock.UtcNow);
     }
+    private Task<bool> IsValidBrandAssetAsync(Guid fileId, string category, Guid tenantId, Guid entityId, CancellationToken ct) => db.StoredFiles.AnyAsync(x =>
+        x.Id == fileId && x.TenantId == tenantId && x.Status == StoredFileStatus.Available && x.Category == category && x.EntityType == "SchoolProfile" &&
+        (x.EntityId == entityId || x.EntityId == tenantId) && x.SizeBytes <= 2 * 1024 * 1024 && (x.ContentType == "image/png" || x.ContentType == "image/jpeg"), ct);
     private static void ValidateColor(string? color, string name) { if (color is not null && (color.Length != 7 || color[0] != '#' || !color[1..].All(Uri.IsHexDigit))) throw new ArgumentException($"{name} must use #RRGGBB format.", name); }
     private static bool IsPhone(string value) => value.Length == 11 && value.All(char.IsAsciiDigit);
     private static string? NormalizeDomain(string? value)
