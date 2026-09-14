@@ -192,5 +192,4 @@ across the runtime.
 The modular monolith is an intentional operational boundary. A module may be
 extracted only when measured scale, reliability or team-ownership constraints
 justify the added distributed-systems cost, and only through an approved
-Architecture Decision Record. See [`ARCHITECTURE.md`](ARCHITECTURE.md) and read
-[`AGENTS.md`](AGENTS.md) before making implementation changes.
+Architecture Decision Record. 
