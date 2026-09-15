@@ -37,6 +37,8 @@ public sealed class AcademicTerm : ITenantOwned
     public DateOnly StartsOn { get; private set; } public DateOnly EndsOn { get; private set; } public AcademicPeriodStatus Status { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public void Update(Guid academicYearId, string name, string code, int sequence, DateOnly startsOn, DateOnly endsOn) { if (academicYearId == Guid.Empty || sequence < 1 || endsOn <= startsOn) throw new ArgumentException("Term sequence and date range are invalid."); AcademicYearId = academicYearId; Name = DomainValidation.Required(name, nameof(name), 100); Code = DomainValidation.Code(code); Sequence = sequence; StartsOn = startsOn; EndsOn = endsOn; }
+    public void Activate() { if (Status == AcademicPeriodStatus.Closed) throw new InvalidOperationException("A closed term cannot be reactivated."); Status = AcademicPeriodStatus.Active; }
+    public void Close() => Status = AcademicPeriodStatus.Closed;
 }
 
 public sealed class EducationStage : ITenantOwned

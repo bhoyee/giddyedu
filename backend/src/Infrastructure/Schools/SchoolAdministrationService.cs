@@ -19,9 +19,9 @@ public sealed record SchoolProfileInput(string DisplayName, string SchoolSlug, s
     Guid? LogoFileId, Guid? PrincipalSignatureFileId, string? PrimaryColor, string? SecondaryColor);
 public sealed record SchoolProfileInfo(string DisplayName, string SchoolSlug, string SchoolType, string? LegalName, string? Tagline, string? Email, string? Phone, string? WebsiteUrl, string? Address,
     string? State, string? LocalGovernment, string CountryCode, string TimeZone, string CurrencyCode, string DateFormat, string TimeFormat, string? CustomDomain,
-    Guid? LogoFileId, Guid? PrincipalSignatureFileId, string? PrimaryColor, string? SecondaryColor, string? LogoUrl);
-public sealed record SchoolBrandingInfo(string DisplayName, string Scope, string? PrimaryColor, string? SecondaryColor, Guid? LogoFileId, Guid? PrincipalSignatureFileId, string? LogoUrl);
-public sealed record CampusInput(string Name, string Code, bool IsMainCampus);
+    Guid? LogoFileId, Guid? PrincipalSignatureFileId, string? PrimaryColor, string? SecondaryColor, string? LogoUrl, string? PrincipalSignatureUrl);
+public sealed record SchoolBrandingInfo(string DisplayName, string Scope, string? PrimaryColor, string? SecondaryColor, Guid? LogoFileId, Guid? PrincipalSignatureFileId, string? LogoUrl, string? PrincipalSignatureUrl);
+public sealed record CampusInput(string Name, bool IsMainCampus);
 public sealed record CampusInfo(Guid Id, string Name, string Code, bool IsMainCampus, bool IsActive, DateTimeOffset CreatedAtUtc, DateTimeOffset? UpdatedAtUtc);
 
 public interface ISchoolAdministrationService
@@ -43,14 +43,15 @@ public sealed class SchoolAdministrationService(GiddyEduDbContext db, ITenantCon
     {
         var profile = await db.SchoolProfiles.AsNoTracking().Select(x => new { x.DisplayName, x.PrimaryColor, x.SecondaryColor, x.LogoFileId, x.PrincipalSignatureFileId }).SingleOrDefaultAsync(ct);
         if (profile is null) return null;
-        var effective = new SchoolBrandingInfo(profile.DisplayName, "Tenant", profile.PrimaryColor, profile.SecondaryColor, profile.LogoFileId, profile.PrincipalSignatureFileId, null);
+        var effective = new SchoolBrandingInfo(profile.DisplayName, "Tenant", profile.PrimaryColor, profile.SecondaryColor, profile.LogoFileId, profile.PrincipalSignatureFileId, null, null);
         if (tenant.CampusId.HasValue)
         {
             var json = await db.CampusSettings.AsNoTracking().Where(x => x.CampusId == tenant.CampusId && x.Key == "school.branding").Select(x => x.ValueJson).SingleOrDefaultAsync(ct);
             if (json is not null && JsonSerializer.Deserialize<SchoolBrandingInfo>(json) is { } campus) effective = campus with { DisplayName = profile.DisplayName, Scope = "Campus" };
         }
         var logoUrl = effective.LogoFileId.HasValue ? await files.CreateDownloadUrlAsync(effective.LogoFileId.Value, ct) : null;
-        return effective with { LogoUrl = logoUrl };
+        var signatureUrl = effective.PrincipalSignatureFileId.HasValue ? await files.CreateDownloadUrlAsync(effective.PrincipalSignatureFileId.Value, ct) : null;
+        return effective with { LogoUrl = logoUrl, PrincipalSignatureUrl = signatureUrl };
     }
 
     public async Task UpsertBrandingAsync(Guid actorUserId, SchoolBrandingInfo input, CancellationToken ct = default)
@@ -66,7 +67,7 @@ public sealed class SchoolAdministrationService(GiddyEduDbContext db, ITenantCon
         }
         else
         {
-            var value = JsonSerializer.Serialize(input with { DisplayName = string.Empty, Scope = "Campus", LogoUrl = null });
+            var value = JsonSerializer.Serialize(input with { DisplayName = string.Empty, Scope = "Campus", LogoUrl = null, PrincipalSignatureUrl = null });
             var setting = await db.CampusSettings.SingleOrDefaultAsync(x => x.CampusId == tenant.CampusId && x.Key == "school.branding", ct);
             if (setting is null) db.CampusSettings.Add(new CampusSetting(tenantId, tenant.CampusId.Value, "school.branding", value, clock.UtcNow)); else setting.Update(value, clock.UtcNow);
         }
@@ -87,14 +88,15 @@ public sealed class SchoolAdministrationService(GiddyEduDbContext db, ITenantCon
         var currentTenant = await db.Tenants.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(x => x.Id == RequireTenant(), ct);
         if (currentTenant is null) return null;
         var profile = await db.SchoolProfiles.AsNoTracking().Select(x => new SchoolProfileInfo(x.DisplayName, currentTenant.Slug, x.SchoolType, x.LegalName, x.Tagline, x.Email, x.Phone, x.WebsiteUrl, x.Address,
-            x.State, x.LocalGovernment, x.CountryCode, x.TimeZone, x.CurrencyCode, x.DateFormat, x.TimeFormat, x.CustomDomain, x.LogoFileId, x.PrincipalSignatureFileId, x.PrimaryColor, x.SecondaryColor, null)).SingleOrDefaultAsync(ct);
+            x.State, x.LocalGovernment, x.CountryCode, x.TimeZone, x.CurrencyCode, x.DateFormat, x.TimeFormat, x.CustomDomain, x.LogoFileId, x.PrincipalSignatureFileId, x.PrimaryColor, x.SecondaryColor, null, null)).SingleOrDefaultAsync(ct);
         if (profile is not null)
         {
             var logoUrl = profile.LogoFileId.HasValue ? await files.CreateDownloadUrlAsync(profile.LogoFileId.Value, ct) : null;
-            return profile with { LogoUrl = logoUrl };
+            var signatureUrl = profile.PrincipalSignatureFileId.HasValue ? await files.CreateDownloadUrlAsync(profile.PrincipalSignatureFileId.Value, ct) : null;
+            return profile with { LogoUrl = logoUrl, PrincipalSignatureUrl = signatureUrl };
         }
         return new SchoolProfileInfo(currentTenant.Name, currentTenant.Slug, "Not specified", currentTenant.Name, null, null, null, null, null, null, null,
-            "NG", "Africa/Lagos", "NGN", "dd/MM/yyyy", "HH:mm", null, null, null, "#12372A", "#10B981", null);
+            "NG", "Africa/Lagos", "NGN", "dd/MM/yyyy", "HH:mm", null, null, null, "#12372A", "#10B981", null, null);
     }
 
     public async Task UpsertProfileAsync(Guid actorUserId, SchoolProfileInput input, CancellationToken ct = default)
@@ -133,7 +135,8 @@ public sealed class SchoolAdministrationService(GiddyEduDbContext db, ITenantCon
     {
         await DemandAsync(actorUserId, Permissions.SchoolsManage, ct); var id = Guid.NewGuid();
         if (input.IsMainCampus) await ClearMainCampusAsync(null, ct);
-        db.Campuses.Add(new Campus(id, RequireTenant(), input.Name, input.Code, clock.UtcNow, input.IsMainCampus)); await db.SaveChangesAsync(ct); return id;
+        var code = await GenerateCampusCodeAsync(input.Name, null, ct);
+        db.Campuses.Add(new Campus(id, RequireTenant(), input.Name, code, clock.UtcNow, input.IsMainCampus)); await db.SaveChangesAsync(ct); return id;
     }
 
     public async Task UpdateCampusAsync(Guid actorUserId, Guid campusId, CampusInput input, CancellationToken ct = default)
@@ -141,7 +144,7 @@ public sealed class SchoolAdministrationService(GiddyEduDbContext db, ITenantCon
         await DemandAsync(actorUserId, Permissions.SchoolsManage, ct);
         var campus = await db.Campuses.SingleOrDefaultAsync(x => x.Id == campusId, ct) ?? throw new KeyNotFoundException("Campus was not found.");
         if (input.IsMainCampus) await ClearMainCampusAsync(campusId, ct);
-        campus.Update(input.Name, input.Code, input.IsMainCampus, clock.UtcNow); await db.SaveChangesAsync(ct);
+        campus.Update(input.Name, campus.Code, input.IsMainCampus, clock.UtcNow); await db.SaveChangesAsync(ct);
     }
 
     public async Task DeleteCampusAsync(Guid actorUserId, Guid campusId, CancellationToken ct = default)
@@ -195,6 +198,19 @@ public sealed class SchoolAdministrationService(GiddyEduDbContext db, ITenantCon
     {
         var existing = await db.Campuses.Where(x => x.IsMainCampus && (!exceptCampusId.HasValue || x.Id != exceptCampusId.Value)).ToListAsync(ct);
         foreach (var campus in existing) campus.SetMainCampus(false, clock.UtcNow);
+    }
+    private async Task<string> GenerateCampusCodeAsync(string name, Guid? exceptCampusId, CancellationToken ct)
+    {
+        var baseCode = new string(string.Join('-', name.Trim().ToUpperInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+            .Select(character => char.IsAsciiLetterOrDigit(character) || character == '-' ? character : '-').ToArray());
+        while (baseCode.Contains("--", StringComparison.Ordinal)) baseCode = baseCode.Replace("--", "-", StringComparison.Ordinal);
+        baseCode = baseCode.Trim('-');
+        if (string.IsNullOrWhiteSpace(baseCode)) throw new ArgumentException("Campus name must contain letters or numbers.", nameof(name));
+        baseCode = baseCode[..Math.Min(baseCode.Length, 40)].TrimEnd('-');
+        var candidate = baseCode;
+        for (var suffix = 2; await db.Campuses.AnyAsync(x => x.Code == candidate && (!exceptCampusId.HasValue || x.Id != exceptCampusId), ct); suffix++)
+            candidate = $"{baseCode[..Math.Min(baseCode.Length, 40 - suffix.ToString().Length - 1)]}-{suffix}";
+        return candidate;
     }
     private Task<bool> IsValidBrandAssetAsync(Guid fileId, string category, Guid tenantId, Guid entityId, CancellationToken ct) => db.StoredFiles.AnyAsync(x =>
         x.Id == fileId && x.TenantId == tenantId && x.Status == StoredFileStatus.Available && x.Category == category && x.EntityType == "SchoolProfile" &&

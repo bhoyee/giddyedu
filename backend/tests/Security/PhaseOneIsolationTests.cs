@@ -32,11 +32,11 @@ public sealed class PhaseOneIsolationTests
     public async Task ClassSection_RejectsCrossTenantReferences()
     {
         await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantB, null);
-        var yearB = await fixture.Academics().CreateAcademicYearAsync(Guid.NewGuid(), new("B Year", new(2026, 9, 1), new(2027, 7, 31)));
-        var stageB = await fixture.Academics().CreateEducationStageAsync(Guid.NewGuid(), new("Secondary", "SEC", 1));
+        var yearB = await fixture.Academics().CreateAcademicYearAsync(Guid.NewGuid(), new("2026/2027", new(2026, 9, 1), new(2027, 7, 31)));
+        var stageB = await fixture.Academics().CreateEducationStageAsync(Guid.NewGuid(), new("Junior Secondary", "JSS", 40));
         var levelB = await fixture.Academics().CreateClassLevelAsync(Guid.NewGuid(), new(stageB, "JSS 1", "JSS1", 1));
         fixture.Db.ChangeTracker.Clear(); fixture.Context.Set(fixture.TenantA, null);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Academics().CreateClassSectionAsync(Guid.NewGuid(), new(fixture.CampusA, yearB, levelB, "JSS 1 A", "JSS1-A", 30)));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Academics().CreateClassSectionAsync(Guid.NewGuid(), new(levelB, "A", 30)));
     }
 
     [Fact]
@@ -57,18 +57,85 @@ public sealed class PhaseOneIsolationTests
     }
 
     [Fact]
-    public async Task AcademicStructure_CreatesNigerianStructureWithoutHardCodingIt()
+    public async Task AcademicStructure_CreatesAndActivatesNigerianStructure()
     {
         await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null); var service = fixture.Academics();
         var year = await service.CreateAcademicYearAsync(Guid.NewGuid(), new("2026/2027", new(2026, 9, 1), new(2027, 7, 31)));
-        await service.CreateTermAsync(Guid.NewGuid(), new(year, "First Term", "T1", 1, new(2026, 9, 1), new(2026, 12, 18)));
+        var term = await service.CreateTermAsync(Guid.NewGuid(), new(year, "First Term", "T1", 1, new(2026, 9, 1), new(2026, 12, 18)));
         var stage = await service.CreateEducationStageAsync(Guid.NewGuid(), new("Junior Secondary", "JSS", 3));
         var level = await service.CreateClassLevelAsync(Guid.NewGuid(), new(stage, "JSS 1", "JSS1", 1));
-        var section = await service.CreateClassSectionAsync(Guid.NewGuid(), new(fixture.CampusA, year, level, "JSS 1 Gold", "JSS1-GOLD", 35));
-        var subject = await service.CreateSubjectAsync(Guid.NewGuid(), new(null, "Mathematics", "MATH", true));
+        await service.ActivateAcademicYearAsync(Guid.NewGuid(), year);
+        var section = await service.CreateClassSectionAsync(Guid.NewGuid(), new(level, "JSS 1 JSS1 Gold", 35));
+        var subject = await service.CreateSubjectAsync(Guid.NewGuid(), new(null, "Mathematics", true));
         await service.AssignSubjectAsync(Guid.NewGuid(), new(section, subject, true));
+        await service.ActivateTermAsync(Guid.NewGuid(), term);
         var result = await service.GetAsync(Guid.NewGuid(), year);
         Assert.Single(result.Terms); Assert.Single(result.ClassSections); Assert.Single(result.ClassSubjects);
+        Assert.Equal("JSS 1 Gold", result.ClassSubjects.Single().ClassSectionName);
+        Assert.Equal("Mathematics", result.ClassSubjects.Single().SubjectName);
+        Assert.Equal("JSS 1 Gold", result.ClassSections.Single().Name);
+        Assert.Equal("JSS1-GOLD", result.ClassSections.Single().Code);
+        Assert.Equal(fixture.CampusA, result.ClassSections.Single().CampusId);
+        Assert.Equal(year, result.ClassSections.Single().AcademicYearId);
+        Assert.Equal(AcademicPeriodStatus.Active, result.AcademicYears.Single().Status);
+        Assert.Equal(AcademicPeriodStatus.Active, result.Terms.Single().Status);
+        await service.DeleteAsync(Guid.NewGuid(), "class-subjects", section, subject);
+        Assert.Empty((await service.GetAsync(Guid.NewGuid(), year)).ClassSubjects);
+    }
+
+    [Fact]
+    public async Task AcademicYears_RejectInvalidOrMismatchedSessionNames()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null); var service = fixture.Academics();
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAcademicYearAsync(Guid.NewGuid(), new("Anything", new(2027, 9, 1), new(2028, 7, 31))));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAcademicYearAsync(Guid.NewGuid(), new("2027/2028", new(2027, 1, 1), new(2027, 12, 31))));
+        var id = await service.CreateAcademicYearAsync(Guid.NewGuid(), new("2027/2028", new(2027, 9, 1), new(2028, 7, 31)));
+        Assert.Equal("2027/2028", (await service.GetAsync(Guid.NewGuid())).AcademicYears.Single(year => year.Id == id).Name);
+    }
+
+    [Fact]
+    public async Task EducationStages_UseProtectedStandardCodesAndOrdering()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null); var service = fixture.Academics();
+        await service.CreateEducationStageAsync(Guid.NewGuid(), new("Junior Secondary", "RANDOM", 999));
+
+        var stage = Assert.Single((await service.GetAsync(Guid.NewGuid())).EducationStages);
+        Assert.Equal("Junior Secondary", stage.Name);
+        Assert.Equal("JSS", stage.Code);
+        Assert.Equal(40, stage.DisplayOrder);
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateEducationStageAsync(Guid.NewGuid(), new("Random stage", "BAD", -1)));
+    }
+
+    [Fact]
+    public async Task ClassLevels_UseProtectedCodesOrderingAndStageCombinations()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null); var service = fixture.Academics();
+        var stageId = await service.CreateEducationStageAsync(Guid.NewGuid(), new("Senior Secondary"));
+        await service.CreateClassLevelAsync(Guid.NewGuid(), new(stageId, "SS 2", "RANDOM", 999));
+
+        var level = Assert.Single((await service.GetAsync(Guid.NewGuid())).ClassLevels);
+        Assert.Equal("Senior Secondary", level.EducationStageName);
+        Assert.Equal("SS 2", level.Name);
+        Assert.Equal("SS2", level.Code);
+        Assert.Equal(20, level.DisplayOrder);
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateClassLevelAsync(Guid.NewGuid(), new(stageId, "JSS 2")));
+    }
+
+    [Fact]
+    public async Task DepartmentsAndSubjects_GenerateProtectedStableCodes()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null); var service = fixture.Academics();
+        var departmentId = await service.CreateDepartmentAsync(Guid.NewGuid(), new("Science & Technology", "MANIPULATED"));
+        var subjectId = await service.CreateSubjectAsync(Guid.NewGuid(), new(departmentId, "Basic Science", true, "MANIPULATED"));
+
+        var structure = await service.GetAsync(Guid.NewGuid());
+        Assert.Equal("SCIENCE-TECHNOLOGY", Assert.Single(structure.Departments).Code);
+        Assert.Equal("BASIC-SCIENCE", Assert.Single(structure.Subjects).Code);
+        await service.UpdateAsync(Guid.NewGuid(), "departments", departmentId, new DepartmentInput("STEM", "CHANGED"));
+        await service.UpdateAsync(Guid.NewGuid(), "subjects", subjectId, new SubjectInput(departmentId, "Integrated Science", false, "CHANGED"));
+        structure = await service.GetAsync(Guid.NewGuid());
+        Assert.Equal("SCIENCE-TECHNOLOGY", Assert.Single(structure.Departments).Code);
+        Assert.Equal("BASIC-SCIENCE", Assert.Single(structure.Subjects).Code);
     }
 
     [Fact]

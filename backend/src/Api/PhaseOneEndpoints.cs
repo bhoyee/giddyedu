@@ -88,6 +88,7 @@ public static class PhaseOneEndpoints
         academics.MapPost("/years", CreateAcademicYearAsync);
         academics.MapPost("/years/{academicYearId:guid}/activate", ActivateAcademicYearAsync);
         academics.MapPost("/terms", CreateTermAsync);
+        academics.MapPost("/terms/{termId:guid}/activate", ActivateTermAsync);
         academics.MapPost("/education-stages", CreateEducationStageAsync);
         academics.MapPost("/class-levels", CreateClassLevelAsync);
         academics.MapPost("/class-sections", CreateClassSectionAsync);
@@ -101,8 +102,8 @@ public static class PhaseOneEndpoints
         academics.MapPut("/class-sections/{id:guid}", (Guid id, ClassSectionInput input, ClaimsPrincipal user, IAcademicStructureService service, CancellationToken ct) => UpdateAcademicAsync("class-sections", id, input, user, service, ct));
         academics.MapPut("/departments/{id:guid}", (Guid id, DepartmentInput input, ClaimsPrincipal user, IAcademicStructureService service, CancellationToken ct) => UpdateAcademicAsync("departments", id, input, user, service, ct));
         academics.MapPut("/subjects/{id:guid}", (Guid id, SubjectInput input, ClaimsPrincipal user, IAcademicStructureService service, CancellationToken ct) => UpdateAcademicAsync("subjects", id, input, user, service, ct));
+        academics.MapDelete("/class-subjects/{id:guid}/{relatedId:guid}", (Guid id, Guid relatedId, ClaimsPrincipal principal, IAcademicStructureService service, IAuditWriter audit, CancellationToken ct) => DeleteAcademicAsync("class-subjects", id, relatedId, principal, service, audit, ct));
         academics.MapDelete("/{resource}/{id:guid}", DeleteAcademicAsync);
-        academics.MapDelete("/class-subjects/{id:guid}/{relatedId:guid}", DeleteAcademicAsync);
 
         var hr = endpoints.MapGroup("/api/v1/hr");
         hr.MapGet("/positions", ListPositionsAsync);
@@ -326,6 +327,8 @@ public static class PhaseOneEndpoints
     private static async Task<IResult> ActivateAcademicYearAsync(Guid academicYearId, ClaimsPrincipal principal, IAcademicStructureService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); await service.ActivateAcademicYearAsync(actor, academicYearId, ct); await audit.WriteAsync(actor, "AcademicYear.Activate", "AcademicYear", academicYearId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
     private static async Task<IResult> CreateTermAsync(AcademicTermInput input, ClaimsPrincipal principal, IAcademicStructureService service, IAuditWriter audit, CancellationToken ct) => await CreatedAsync(await service.CreateTermAsync(UserId(principal), input, ct), "AcademicTerm", "AcademicTerm.Create", principal, audit, ct);
+    private static async Task<IResult> ActivateTermAsync(Guid termId, ClaimsPrincipal principal, IAcademicStructureService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.ActivateTermAsync(actor, termId, ct); await audit.WriteAsync(actor, "AcademicTerm.Activate", "AcademicTerm", termId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
     private static async Task<IResult> CreateEducationStageAsync(EducationStageInput input, ClaimsPrincipal principal, IAcademicStructureService service, IAuditWriter audit, CancellationToken ct) => await CreatedAsync(await service.CreateEducationStageAsync(UserId(principal), input, ct), "EducationStage", "EducationStage.Create", principal, audit, ct);
     private static async Task<IResult> CreateClassLevelAsync(ClassLevelInput input, ClaimsPrincipal principal, IAcademicStructureService service, IAuditWriter audit, CancellationToken ct) => await CreatedAsync(await service.CreateClassLevelAsync(UserId(principal), input, ct), "ClassLevel", "ClassLevel.Create", principal, audit, ct);
     private static async Task<IResult> CreateClassSectionAsync(ClassSectionInput input, ClaimsPrincipal principal, IAcademicStructureService service, IAuditWriter audit, CancellationToken ct) => await CreatedAsync(await service.CreateClassSectionAsync(UserId(principal), input, ct), "ClassSection", "ClassSection.Create", principal, audit, ct);

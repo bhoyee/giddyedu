@@ -29,6 +29,24 @@ button:disabled,
   cursor: not-allowed;
 }
 
+/* Keep legacy portal modules aligned with the tenant's saved brand palette. */
+.tenant-theme {
+  --tenant-primary-hover: color-mix(in srgb, var(--tenant-primary), #000 14%);
+  --tenant-primary-soft: color-mix(in srgb, var(--tenant-primary), #fff 90%);
+  --tenant-primary-border: color-mix(in srgb, var(--tenant-primary), #fff 58%);
+  --tenant-secondary-soft: color-mix(in srgb, var(--tenant-secondary), #fff 86%);
+}
+
+.tenant-theme :is(.tenant-primary-bg, .bg-emerald-700, .bg-emerald-800, [class~="bg-[#12372a]"]) { background-color: var(--tenant-primary) !important; }
+.tenant-theme :is(.tenant-primary-text, .text-emerald-700, .text-emerald-800, .text-emerald-900) { color: var(--tenant-primary) !important; }
+.tenant-theme :is(.tenant-primary-border, .border-emerald-700, .border-emerald-800) { border-color: var(--tenant-primary-border) !important; }
+.tenant-theme :is(.bg-emerald-50, .bg-emerald-100) { background-color: var(--tenant-secondary-soft) !important; }
+.tenant-theme :is(.text-emerald-100, .text-emerald-200) { color: var(--tenant-secondary) !important; }
+.tenant-theme :is(.hover\:bg-emerald-700, .hover\:bg-emerald-800, [class~="hover:bg-[#1d513d]"]):hover,
+.tenant-theme .tenant-primary-bg:hover { background-color: var(--tenant-primary-hover) !important; }
+.tenant-theme :is(.hover\:text-emerald-700, .hover\:text-emerald-800, .hover\:text-emerald-900):hover { color: var(--tenant-primary-hover) !important; }
+.tenant-theme :is(input, select, textarea):focus { border-color: var(--tenant-primary) !important; box-shadow: 0 0 0 3px var(--tenant-primary-soft); }
+
 @utility field-control {
   margin-top: 0.25rem;
   width: 100%;

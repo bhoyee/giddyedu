@@ -53,13 +53,16 @@ export function PortalShell({ children }: { children?: ReactNode }) {
     void fetch("/api/backend/schools/branding", { cache: "no-store" }).then(async response => { if (!response.ok) return; const profile = await response.json() as { primaryColor?: string; secondaryColor?: string; logoUrl?: string }; setBranding({ primaryColor: profile.primaryColor ?? defaultBranding.primaryColor, secondaryColor: profile.secondaryColor ?? defaultBranding.secondaryColor, logoUrl: profile.logoUrl }); });
     void fetch("/api/backend/auth/workspaces", { cache: "no-store" }).then(async response => { if (response.ok) setWorkspaces(await response.json() as SchoolWorkspace[]); });
     if (access.permissions.includes("Academics.View") && access.entitlements["academic-structure"]?.enabled) {
-      void fetch("/api/backend/academics/structure", { cache: "no-store" }).then(async response => {
+      const loadAcademicContext = () => fetch("/api/backend/academics/structure", { cache: "no-store" }).then(async response => {
         if (!response.ok) return;
         const structure = await response.json() as { academicYears: { id: string; name: string; status: number | string }[]; terms: { academicYearId: string; name: string; status: number | string }[] };
         const activeYear = structure.academicYears.find(year => year.status === 1 || year.status === "Active");
         const activeTerm = activeYear ? structure.terms.find(term => term.academicYearId === activeYear.id && (term.status === 1 || term.status === "Active")) : undefined;
         setAcademicContext({ year: activeYear?.name ?? null, term: activeTerm?.name ?? null });
       });
+      void loadAcademicContext();
+      window.addEventListener("giddyedu:academic-context-changed", loadAcademicContext);
+      return () => window.removeEventListener("giddyedu:academic-context-changed", loadAcademicContext);
     }
   }, [access]);
 
@@ -73,11 +76,11 @@ export function PortalShell({ children }: { children?: ReactNode }) {
   const experience = audienceCopy[audience];
   const schoolName = access.tenantName ?? "GiddyEdu";
   const brandingStyle = { "--tenant-primary": branding.primaryColor, "--tenant-secondary": branding.secondaryColor } as CSSProperties;
-  return <div className="min-h-screen bg-[#f4f6f3] text-[#17241d]" style={brandingStyle}>
+  return <div className="tenant-theme min-h-screen bg-[#f4f6f3] text-[#17241d]" style={brandingStyle}>
     <aside style={{ backgroundColor: branding.primaryColor }} className={`fixed inset-y-0 left-0 z-50 hidden border-r border-white/8 text-white shadow-2xl transition-[width,background-color] duration-300 lg:flex lg:flex-col ${sidebarCompact ? "w-[5.5rem]" : "w-[18.5rem]"}`}>
-      <Sidebar pathname={pathname} schoolName={schoolName} campusName={access.campusName} audience={audience} activeHrefs={activeHrefs} query={navigationQuery} setQuery={setNavigationQuery} compact={sidebarCompact} branding={branding} onToggleCompact={() => setSidebarCompact(value => !value)} onNavigate={() => undefined} />
+      <Sidebar pathname={pathname} schoolName={schoolName} campusName={access.campusName ?? "School-wide workspace"} audience={audience} activeHrefs={activeHrefs} query={navigationQuery} setQuery={setNavigationQuery} compact={sidebarCompact} branding={branding} onToggleCompact={() => setSidebarCompact(value => !value)} onNavigate={() => undefined} />
     </aside>
-    {mobileMenuOpen && <div className="fixed inset-0 z-50 lg:hidden"><button type="button" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)} className="absolute inset-0 bg-[#071b14]/65 backdrop-blur-sm" /><aside style={{ backgroundColor: branding.primaryColor }} className="relative flex h-full w-[min(88vw,22rem)] flex-col text-white shadow-2xl"><Sidebar pathname={pathname} schoolName={schoolName} campusName={access.campusName} audience={audience} activeHrefs={activeHrefs} query={navigationQuery} setQuery={setNavigationQuery} compact={false} branding={branding} onNavigate={() => setMobileMenuOpen(false)} onClose={() => setMobileMenuOpen(false)} /></aside></div>}
+    {mobileMenuOpen && <div className="fixed inset-0 z-50 lg:hidden"><button type="button" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)} className="absolute inset-0 bg-[#071b14]/65 backdrop-blur-sm" /><aside style={{ backgroundColor: branding.primaryColor }} className="relative flex h-full w-[min(88vw,22rem)] flex-col text-white shadow-2xl"><Sidebar pathname={pathname} schoolName={schoolName} campusName={access.campusName ?? "School-wide workspace"} audience={audience} activeHrefs={activeHrefs} query={navigationQuery} setQuery={setNavigationQuery} compact={false} branding={branding} onNavigate={() => setMobileMenuOpen(false)} onClose={() => setMobileMenuOpen(false)} /></aside></div>}
 
     <div className={`transition-[padding] duration-300 ${sidebarCompact ? "lg:pl-[5.5rem]" : "lg:pl-[18.5rem]"}`}>
       <PortalHeader access={access} academicContext={academicContext} workspaces={workspaces} openMenu={openMenu} setOpenMenu={setOpenMenu} openMobileMenu={() => setMobileMenuOpen(true)} switchWorkspace={switchWorkspace} logout={logout} />
