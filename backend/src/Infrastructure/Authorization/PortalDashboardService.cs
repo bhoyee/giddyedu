@@ -160,7 +160,7 @@ public sealed class PortalDashboardService(
         if (await CanUseAsync(effectivePermissions, Permissions.SchoolsView, FeatureKeys.SchoolAdministration, ct))
         {
             steps.Add(new("school-profile", "Complete school profile", await db.SchoolProfiles.AnyAsync(ct), "Add the school's identity and contact information.", "/portal/school"));
-            steps.Add(new("campus", "Configure an active campus", await db.Campuses.AnyAsync(x => x.IsActive, ct), "At least one active campus is required for operations.", "/portal/school"));
+            steps.Add(new("campus", "Configure an active campus", await db.Campuses.AnyAsync(x => x.IsActive, ct), "At least one active campus is required for operations.", "/portal/school?section=campuses"));
         }
         if (await CanUseAsync(effectivePermissions, Permissions.AcademicsView, FeatureKeys.AcademicStructure, ct))
             steps.Add(new("academics", "Configure academic structure", await db.AcademicYears.AnyAsync(ct) && await db.ClassSections.AnyAsync(x => x.IsActive, ct), "Create an academic year and at least one active class.", "/portal/academics"));

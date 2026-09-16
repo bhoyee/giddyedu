@@ -7,11 +7,28 @@ using GiddyEdu.Modules.Identity;
 using GiddyEdu.Modules.Platform.Domain;
 using GiddyEdu.Infrastructure.StudentLifecycle;
 using GiddyEdu.Infrastructure.Authorization;
+using GiddyEdu.Infrastructure.Messaging;
 
 namespace GiddyEdu.UnitTests;
 
 public sealed class PhaseOneDomainTests
 {
+    [Fact]
+    public void StaffInvitationEmail_IdentifiesSchoolAndEscapesUntrustedNames()
+    {
+        var content = GiddyEduEmailTemplate.Create("Welcome to your staff workspace",
+            "North Campus has created your account. Sign in with teacher@example.com.",
+            "Set up your staff account", "https://example.com/accept-invitation?token=abc",
+            organizationName: "Greenfield <Academy>", secondaryActionLabel: "Sign-in page",
+            secondaryActionUrl: "https://example.com/login");
+
+        Assert.Contains("Greenfield &lt;Academy&gt;", content.HtmlBody);
+        Assert.DoesNotContain("Greenfield <Academy>", content.HtmlBody);
+        Assert.Contains("North Campus", content.HtmlBody);
+        Assert.Contains("teacher@example.com", content.TextBody);
+        Assert.Contains("https://example.com/login", content.TextBody);
+    }
+
     [Fact]
     public void TenantSubscription_SuspensionRevokesAccessAndReactivationRestoresIt()
     {

@@ -27,9 +27,11 @@ export function PortalShell({ children }: { children?: ReactNode }) {
   const [openMenu, setOpenMenu] = useState<"account" | "notifications" | "workspace" | null>(null);
   const [workspaces, setWorkspaces] = useState<SchoolWorkspace[]>([]);
   const [academicContext, setAcademicContext] = useState<AcademicContext>({ year: null, term: null });
-  const [branding, setBranding] = useState<TenantBranding>(defaultBranding);
+  const [savedBranding, setSavedBranding] = useState<{ workspaceKey: string; value: TenantBranding } | null>(null);
+  const workspaceKey = access?.tenantId ? `${access.tenantId}:${access.campusId ?? "school"}` : null;
+  const branding = savedBranding?.value ?? defaultBranding;
 
-  useEffect(() => { const preview = (event: Event) => { const detail = (event as CustomEvent<Partial<TenantBranding>>).detail; setBranding(current => ({ ...current, ...detail })); }; window.addEventListener("giddyedu:branding-preview", preview); return () => window.removeEventListener("giddyedu:branding-preview", preview); }, []);
+  useEffect(() => { const preview = (event: Event) => { const detail = (event as CustomEvent<Partial<TenantBranding>>).detail; setSavedBranding(current => current ? { ...current, value: { ...current.value, ...detail } } : current); }; window.addEventListener("giddyedu:branding-preview", preview); return () => window.removeEventListener("giddyedu:branding-preview", preview); }, []);
 
   useEffect(() => {
     void fetch("/api/auth/session", { cache: "no-store" }).then(async response => {
@@ -49,8 +51,18 @@ export function PortalShell({ children }: { children?: ReactNode }) {
   }, [audience]);
 
   useEffect(() => {
+    if (!workspaceKey) return;
+    const controller = new AbortController();
+    void fetch("/api/backend/schools/branding", { cache: "no-store", signal: controller.signal }).then(async response => {
+      if (!response.ok) throw new Error("School branding could not be loaded.");
+      const profile = await response.json() as { primaryColor?: string; secondaryColor?: string; logoUrl?: string };
+      setSavedBranding({ workspaceKey, value: { primaryColor: profile.primaryColor ?? defaultBranding.primaryColor, secondaryColor: profile.secondaryColor ?? defaultBranding.secondaryColor, logoUrl: profile.logoUrl } });
+    }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "School branding could not be loaded."); });
+    return () => controller.abort();
+  }, [workspaceKey]);
+
+  useEffect(() => {
     if (!access?.tenantId) return;
-    void fetch("/api/backend/schools/branding", { cache: "no-store" }).then(async response => { if (!response.ok) return; const profile = await response.json() as { primaryColor?: string; secondaryColor?: string; logoUrl?: string }; setBranding({ primaryColor: profile.primaryColor ?? defaultBranding.primaryColor, secondaryColor: profile.secondaryColor ?? defaultBranding.secondaryColor, logoUrl: profile.logoUrl }); });
     void fetch("/api/backend/auth/workspaces", { cache: "no-store" }).then(async response => { if (response.ok) setWorkspaces(await response.json() as SchoolWorkspace[]); });
     if (access.permissions.includes("Academics.View") && access.entitlements["academic-structure"]?.enabled) {
       const loadAcademicContext = () => fetch("/api/backend/academics/structure", { cache: "no-store" }).then(async response => {
@@ -69,7 +81,7 @@ export function PortalShell({ children }: { children?: ReactNode }) {
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); router.replace("/login"); router.refresh(); }
   async function switchWorkspace(tenantId: string, campusId: string | null) { const response = await fetch("/api/auth/switch-workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tenantId, campusId }) }); if (!response.ok) { setError("That workspace could not be opened."); return; } window.location.replace(new URL("/portal", window.location.origin).toString()); }
   if (error) return <State title="Workspace unavailable" detail={error} />;
-  if (!access || !audience) return <State title="Loading workspace" detail="Checking your school, permissions and subscription…" />;
+  if (!access || !audience || (workspaceKey !== null && savedBranding?.workspaceKey !== workspaceKey)) return <State title="Loading workspace" detail="Checking your school, permissions and branding…" loading />;
 
   const activeItems = visiblePortalItems(access, audience);
   const activeHrefs = new Set(activeItems.map(item => item.href));
@@ -152,4 +164,15 @@ function RoleIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="curren
 function LogoutIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4"><path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10" /></svg>; }
 function CollapseIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-4"><path d="m15 6-6 6 6 6" /></svg>; }
 function ExpandIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-4"><path d="m9 6 6 6-6 6" /></svg>; }
-function State({ title, detail }: { title: string; detail: string }) { return <main className="grid min-h-screen place-items-center bg-[#f4f6f3] px-6"><div className="rounded-3xl border border-[#e0e6e1] bg-white p-8 text-center shadow-xl"><div className="mx-auto grid size-12 place-items-center rounded-2xl bg-[#e8f3eb] text-[#286246]"><DashboardIcon /></div><h1 className="mt-5 text-xl font-black">{title}</h1><p className="mt-2 text-sm text-[#6e7a72]">{detail}</p></div></main>; }
+function State({ title, detail, loading = false }: { title: string; detail: string; loading?: boolean }) {
+  if (loading) return <main className="grid min-h-screen place-items-center bg-[radial-gradient(circle_at_50%_38%,#f6f1e3_0%,#f4f6f3_46%,#eaf0eb_100%)] px-6">
+    <div role="status" aria-live="polite" className="w-full max-w-md text-center">
+      <div className="mx-auto flex size-20 items-center justify-center rounded-[1.6rem] border border-[#e7dfcb] bg-white shadow-[0_18px_55px_rgba(20,50,35,.09)]"><BrandLogo showWordmark={false} tone="dark" iconClassName="size-12" /></div>
+      <BrandLogo tone="dark" iconClassName="hidden" wordmarkClassName="text-3xl sm:text-4xl" className="mt-6" />
+      <div className="workspace-loading-bar mx-auto mt-8 h-1.5 w-40 overflow-hidden rounded-full bg-[#dce6dc]" aria-hidden="true" />
+      <h1 className="mt-7 text-lg font-black tracking-tight text-[#17372b]">{title}</h1>
+      <p className="mt-2 text-sm leading-6 text-[#66776a]">{detail}</p>
+    </div>
+  </main>;
+  return <main className="grid min-h-screen place-items-center bg-[#f4f6f3] px-6"><div role="alert" className="w-full max-w-sm rounded-3xl border border-[#e0e6e1] bg-white p-8 text-center shadow-xl"><div className="mx-auto grid size-12 place-items-center rounded-2xl bg-[#e8f3eb] text-[#286246]"><DashboardIcon /></div><h1 className="mt-5 text-xl font-black">{title}</h1><p className="mt-2 text-sm text-[#6e7a72]">{detail}</p></div></main>;
+}

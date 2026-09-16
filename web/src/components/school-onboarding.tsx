@@ -11,11 +11,11 @@ type Access = { tenantId: string; campusId?: string | null; campusName?: string 
 type BrandingResponse = { scope: string; primaryColor?: string; secondaryColor?: string; logoFileId?: string; principalSignatureFileId?: string; logoUrl?: string };
 const blankProfile: Profile = { displayName: "", schoolSlug: "", schoolType: "Not specified", countryCode: "NG", timeZone: "Africa/Lagos", currencyCode: "NGN", dateFormat: "dd/MM/yyyy", timeFormat: "HH:mm", primaryColor: "#12372A", secondaryColor: "#10B981" };
 
-export function SchoolOnboarding() {
+export function SchoolOnboarding({ initialStep = 0 }: { initialStep?: number }) {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile>(blankProfile); const [campuses, setCampuses] = useState<Campus[]>([]); const [access, setAccess] = useState<Access | null>(null);
   const savedBranding = useRef<Pick<Profile, "primaryColor" | "secondaryColor" | "logoUrl">>(blankProfile);
-  const [step, setStep] = useState(0); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
+  const [step, setStep] = useState(initialStep); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
   const canManage = access?.permissions.includes("Schools.Manage") === true;
   const completed = useMemo(() => [Boolean(profile.displayName && profile.legalName && profile.email && profile.address && profile.state && profile.localGovernment), Boolean(profile.primaryColor && profile.secondaryColor), campuses.some(campus => campus.isActive)], [profile, campuses]);
 

@@ -108,6 +108,8 @@ public static class PhaseOneEndpoints
         var hr = endpoints.MapGroup("/api/v1/hr");
         hr.MapGet("/positions", ListPositionsAsync);
         hr.MapPost("/positions", CreatePositionAsync);
+        hr.MapPut("/positions/{positionId:guid}", UpdatePositionAsync);
+        hr.MapDelete("/positions/{positionId:guid}", DeletePositionAsync);
         hr.MapGet("/staff", ListStaffAsync);
         hr.MapGet("/staff/{staffId:guid}", GetStaffAsync);
         hr.MapPost("/staff", CreateStaffAsync);
@@ -343,6 +345,10 @@ public static class PhaseOneEndpoints
 
     private static async Task<IResult> ListPositionsAsync(ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListPositionsAsync(UserId(principal), ct));
     private static async Task<IResult> CreatePositionAsync(PositionInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) => await CreatedHrAsync(await service.CreatePositionAsync(UserId(principal), input, ct), "Position", "Position.Create", principal, audit, ct);
+    private static async Task<IResult> UpdatePositionAsync(Guid positionId, PositionInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.UpdatePositionAsync(actor, positionId, input, ct); await audit.WriteAsync(actor, "Position.Update", "Position", positionId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
+    private static async Task<IResult> DeletePositionAsync(Guid positionId, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.DeletePositionAsync(actor, positionId, ct); await audit.WriteAsync(actor, "Position.Delete", "Position", positionId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
     private static async Task<IResult> ListStaffAsync(int page, int pageSize, string? search, StaffStatus? status, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListAsync(UserId(principal), page, pageSize == 0 ? 25 : pageSize, search, status, ct));
     private static async Task<IResult> GetStaffAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.GetAsync(UserId(principal), staffId, ct));
     private static async Task<IResult> CreateStaffAsync(StaffInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) => await CreatedHrAsync(await service.CreateAsync(UserId(principal), input, ct), "StaffProfile", "Staff.Create", principal, audit, ct);

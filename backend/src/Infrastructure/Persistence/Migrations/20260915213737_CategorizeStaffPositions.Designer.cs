@@ -3,6 +3,7 @@ using System;
 using GiddyEdu.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GiddyEdu.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(GiddyEduDbContext))]
-    partial class GiddyEduDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260915213737_CategorizeStaffPositions")]
+    partial class CategorizeStaffPositions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -382,9 +385,6 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "Code")
                         .IsUnique();
 
-                    b.HasIndex("TenantId", "Category", "Name")
-                        .IsUnique();
-
                     b.ToTable("Positions", "giddyedu");
                 });
 
@@ -553,10 +553,6 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "DepartmentId");
 
-                    b.HasIndex("TenantId", "Phone")
-                        .IsUnique()
-                        .HasFilter("\"Phone\" IS NOT NULL");
-
                     b.HasIndex("TenantId", "PositionId");
 
                     b.HasIndex("TenantId", "StaffNumber")
@@ -565,10 +561,6 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "UserId")
                         .IsUnique()
                         .HasFilter("\"UserId\" IS NOT NULL");
-
-                    b.HasIndex("TenantId", "WorkEmail")
-                        .IsUnique()
-                        .HasFilter("\"WorkEmail\" IS NOT NULL");
 
                     b.ToTable("StaffProfiles", "giddyedu", t =>
                         {
@@ -627,55 +619,9 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("StaffId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Achievements")
-                        .HasMaxLength(3000)
-                        .HasColumnType("character varying(3000)");
-
                     b.Property<string>("Address")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
-
-                    b.Property<string>("BloodGroup")
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)");
-
-                    b.Property<string>("City")
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)");
-
-                    b.Property<string>("Country")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateOnly?>("DateOfBirth")
-                        .HasColumnType("date");
-
-                    b.Property<string>("Disability")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<string>("Gender")
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<string>("Genotype")
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)");
-
-                    b.Property<decimal?>("HeightCm")
-                        .HasColumnType("numeric");
-
-                    b.Property<string>("LocalGovernment")
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)");
-
-                    b.Property<string>("MaritalStatus")
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.Property<string>("MiddleName")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("NextOfKinName")
                         .HasMaxLength(200)
@@ -689,39 +635,8 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
-                    b.Property<string>("OfficeAddress")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<string>("Religion")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<string>("Skills")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<string>("SocialProfilesJson")
-                        .HasMaxLength(4000)
-                        .HasColumnType("character varying(4000)");
-
-                    b.Property<string>("State")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("Title")
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Website")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<decimal?>("WeightKg")
-                        .HasColumnType("numeric");
 
                     b.HasKey("TenantId", "StaffId");
 

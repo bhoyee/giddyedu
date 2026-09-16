@@ -3,6 +3,7 @@ using System;
 using GiddyEdu.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GiddyEdu.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(GiddyEduDbContext))]
-    partial class GiddyEduDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260915231322_ExpandStaffRegistrationDetails")]
+    partial class ExpandStaffRegistrationDetails
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -382,9 +385,6 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "Code")
                         .IsUnique();
 
-                    b.HasIndex("TenantId", "Category", "Name")
-                        .IsUnique();
-
                     b.ToTable("Positions", "giddyedu");
                 });
 
@@ -553,10 +553,6 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "DepartmentId");
 
-                    b.HasIndex("TenantId", "Phone")
-                        .IsUnique()
-                        .HasFilter("\"Phone\" IS NOT NULL");
-
                     b.HasIndex("TenantId", "PositionId");
 
                     b.HasIndex("TenantId", "StaffNumber")
@@ -565,10 +561,6 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "UserId")
                         .IsUnique()
                         .HasFilter("\"UserId\" IS NOT NULL");
-
-                    b.HasIndex("TenantId", "WorkEmail")
-                        .IsUnique()
-                        .HasFilter("\"WorkEmail\" IS NOT NULL");
 
                     b.ToTable("StaffProfiles", "giddyedu", t =>
                         {

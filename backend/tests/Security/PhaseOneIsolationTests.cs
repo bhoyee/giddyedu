@@ -143,7 +143,7 @@ public sealed class PhaseOneIsolationTests
     {
         await using var fixture = await Fixture.CreateAsync();
         fixture.Context.Set(fixture.TenantA, null);
-        await fixture.Staff().CreateAsync(Guid.NewGuid(), new("A-001", "Ada", "Okafor", StaffCategory.Teaching, fixture.CampusA, null, null, null, null, new(2026, 9, 1)));
+        await fixture.Staff().CreateAsync(Guid.NewGuid(), new("A-001", "Ada", "Okafor", StaffCategory.Teaching, fixture.CampusA, null, null, "ada.isolation@example.com", "09096735001", new(2026, 9, 1)));
         fixture.Context.Set(fixture.TenantB, null);
         var result = await fixture.Staff().ListAsync(Guid.NewGuid(), 1, 25, null, null);
         Assert.Empty(result.Items);
@@ -154,6 +154,56 @@ public sealed class PhaseOneIsolationTests
     {
         await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantB, null);
         await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Staff().CreateAsync(Guid.NewGuid(), new("B-001", "Bola", "Ade", StaffCategory.Administrative, fixture.CampusA, null, null, null, null, new(2026, 9, 1))));
+    }
+
+    [Fact]
+    public async Task StaffCreation_GeneratesUniqueNumberAndValidatesNigerianPhone()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
+        var service = fixture.Staff();
+        var firstId = await service.CreateAsync(Guid.NewGuid(), new("IGNORED", "Ada", "Okafor", StaffCategory.Teaching, fixture.CampusA, null, null, "ada@example.com", "09096735531", new(2026, 9, 1)));
+        var secondId = await service.CreateAsync(Guid.NewGuid(), new(null, "Bola", "Ade", StaffCategory.Administrative, fixture.CampusA, null, null, "bola@example.com", "09096735532", new(2026, 9, 1)));
+
+        var first = await service.GetAsync(Guid.NewGuid(), firstId);
+        var second = await service.GetAsync(Guid.NewGuid(), secondId);
+        Assert.StartsWith("STF-2026-", first.StaffNumber);
+        Assert.NotEqual(first.StaffNumber, second.StaffNumber);
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(Guid.NewGuid(), new(null, "Bad", "Phone", StaffCategory.NonTeaching, fixture.CampusA, null, null, "bad@example.com", "+2348096735531", new(2026, 9, 1))));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateAsync(Guid.NewGuid(), new(null, "Duplicate", "Email", StaffCategory.NonTeaching, fixture.CampusA, null, null, "ADA@EXAMPLE.COM", "09096735533", new(2026, 9, 1))));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateAsync(Guid.NewGuid(), new(null, "Duplicate", "Phone", StaffCategory.NonTeaching, fixture.CampusA, null, null, "unique@example.com", "09096735531", new(2026, 9, 1))));
+    }
+
+    [Fact]
+    public async Task Position_CreatesProtectedCodeAndRejectsDuplicateName()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Context.Set(fixture.TenantA, null);
+        var service = fixture.Staff();
+
+        var positionId = await service.CreatePositionAsync(Guid.NewGuid(), new("Head Teacher"));
+
+        var position = Assert.Single(await service.ListPositionsAsync(Guid.NewGuid()), item => item.IsCustom);
+        Assert.Equal("Head Teacher", position.Name);
+        Assert.Equal("HEAD-TEACHER", position.Code);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreatePositionAsync(Guid.NewGuid(), new("head teacher")));
+        await service.UpdatePositionAsync(Guid.NewGuid(), positionId, new("Senior Head Teacher"));
+        Assert.Equal("Senior Head Teacher", Assert.Single(await service.ListPositionsAsync(Guid.NewGuid()), item => item.IsCustom).Name);
+        await service.DeletePositionAsync(Guid.NewGuid(), positionId);
+        Assert.DoesNotContain(await service.ListPositionsAsync(Guid.NewGuid()), item => item.IsCustom);
+    }
+
+    [Fact]
+    public async Task Position_DeleteIsBlockedWhileAssignedToStaff()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Context.Set(fixture.TenantA, null);
+        var service = fixture.Staff();
+        var positionId = await service.CreatePositionAsync(Guid.NewGuid(), new("Class Teacher", StaffCategory.Teaching));
+        await service.CreateAsync(Guid.NewGuid(), new("A-002", "Tola", "Akin", StaffCategory.Teaching, fixture.CampusA, null, positionId, "tola@example.com", "09096735002", new(2026, 9, 1)));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeletePositionAsync(Guid.NewGuid(), positionId));
+        Assert.Contains("assigned to staff", error.Message);
     }
 
     [Fact]

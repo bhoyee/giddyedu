@@ -8,8 +8,9 @@ public sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<Gid
 {
     public GiddyEduDbContext CreateDbContext(string[] args)
     {
-        var connection = Environment.GetEnvironmentVariable("ConnectionStrings__Postgres")
-            ?? "Host=localhost;Port=5432;Database=giddyedu;Username=giddyedu;Password=giddyedu_dev";
+        var connection = Environment.GetEnvironmentVariable("ConnectionStrings__Postgres");
+        if (string.IsNullOrWhiteSpace(connection))
+            throw new InvalidOperationException("Set ConnectionStrings__Postgres before running Entity Framework design-time commands.");
         var options = new DbContextOptionsBuilder<GiddyEduDbContext>().UseNpgsql(connection, npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "public")).Options;
         return new GiddyEduDbContext(options, new TenantContextAccessor());
     }

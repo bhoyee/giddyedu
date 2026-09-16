@@ -47,6 +47,25 @@ button:disabled,
 .tenant-theme :is(.hover\:text-emerald-700, .hover\:text-emerald-800, .hover\:text-emerald-900):hover { color: var(--tenant-primary-hover) !important; }
 .tenant-theme :is(input, select, textarea):focus { border-color: var(--tenant-primary) !important; box-shadow: 0 0 0 3px var(--tenant-primary-soft); }
 
+.workspace-loading-bar::after {
+  content: "";
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #d1ad52, #f1c969, #d1ad52);
+  animation: workspace-loading-sweep 1.7s ease-in-out infinite;
+}
+
+@keyframes workspace-loading-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(245%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-loading-bar::after { animation: none; width: 100%; }
+}
+
 @utility field-control {
   margin-top: 0.25rem;
   width: 100%;

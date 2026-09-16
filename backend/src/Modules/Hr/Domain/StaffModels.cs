@@ -3,16 +3,18 @@ using GiddyEdu.BuildingBlocks.Tenancy;
 namespace GiddyEdu.Modules.Hr.Domain;
 
 public enum StaffCategory { Teaching, Administrative, NonTeaching }
-public enum StaffStatus { Active, Suspended, Exited }
+public enum StaffStatus { Active, Suspended, Exited, Away, NotCleared, Inactive, OnLeave, Retired, Resigned, Sacked, Left, Deceased }
 public enum TeachingAssignmentRole { SubjectTeacher, ClassTeacher, FormTeacher }
 
 public sealed class Position : ITenantOwned
 {
     private Position() { }
-    public Position(Guid id, Guid tenantId, string name, string code, DateTimeOffset createdAtUtc)
-    { ValidateIds(id, tenantId); Id = id; TenantId = tenantId; Name = Required(name, nameof(name), 150); Code = Required(code, nameof(code), 50).ToUpperInvariant(); IsActive = true; CreatedAtUtc = createdAtUtc; }
+    public Position(Guid id, Guid tenantId, string name, string code, StaffCategory category, bool isCustom, DateTimeOffset createdAtUtc)
+    { ValidateIds(id, tenantId); Id = id; TenantId = tenantId; Name = Required(name, nameof(name), 150); Code = Required(code, nameof(code), 50).ToUpperInvariant(); Category = category; IsCustom = isCustom; IsActive = true; CreatedAtUtc = createdAtUtc; }
     public Guid Id { get; private set; } public Guid TenantId { get; private set; } public string Name { get; private set; } = null!; public string Code { get; private set; } = null!;
+    public StaffCategory Category { get; private set; } public bool IsCustom { get; private set; }
     public bool IsActive { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
+    public void Update(string name, StaffCategory category) { Name = Required(name, nameof(name), 150); Category = category; }
     private static void ValidateIds(Guid id, Guid tenantId) { if (id == Guid.Empty || tenantId == Guid.Empty) throw new ArgumentException("Position identifiers are required."); }
     private static string Required(string value, string name, int max) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > max ? throw new ArgumentException($"{name} is required and must not exceed {max} characters.", name) : value.Trim();
 }
@@ -37,11 +39,12 @@ public sealed class StaffProfile : ITenantOwned
         string? workEmail, string? phone, DateOnly hireDate, DateTimeOffset now)
     {
         StaffNumber = Required(staffNumber, nameof(staffNumber), 50).ToUpperInvariant(); FirstName = Required(firstName, nameof(firstName), 100); LastName = Required(lastName, nameof(lastName), 100);
-        Category = category; CampusId = campusId; DepartmentId = departmentId; PositionId = positionId; WorkEmail = Optional(workEmail, 320); Phone = Optional(phone, 30); HireDate = hireDate; UpdatedAtUtc = now;
+        Category = category; CampusId = campusId; DepartmentId = departmentId; PositionId = positionId; WorkEmail = Optional(workEmail, 320)?.ToLowerInvariant(); Phone = Optional(phone, 30); HireDate = hireDate; UpdatedAtUtc = now;
     }
     public void LinkUser(Guid userId, DateTimeOffset now) { if (userId == Guid.Empty) throw new ArgumentException("User identifier is required.", nameof(userId)); UserId = userId; UpdatedAtUtc = now; }
     public void Suspend(DateTimeOffset now) { if (Status == StaffStatus.Exited) throw new InvalidOperationException("Exited staff cannot be suspended."); Status = StaffStatus.Suspended; UpdatedAtUtc = now; }
     public void Reactivate(DateTimeOffset now) { if (Status == StaffStatus.Exited) throw new InvalidOperationException("Exited staff cannot be reactivated."); Status = StaffStatus.Active; UpdatedAtUtc = now; }
+    public void SetInitialStatus(StaffStatus status, DateTimeOffset now) { if (status == StaffStatus.Exited) throw new ArgumentException("Exited is not a valid initial staff status.", nameof(status)); Status = status; UpdatedAtUtc = now; }
     public void Exit(DateOnly exitDate, DateTimeOffset now) { if (exitDate < HireDate) throw new ArgumentException("Exit date cannot precede hire date.", nameof(exitDate)); Status = StaffStatus.Exited; ExitDate = exitDate; UpdatedAtUtc = now; }
     private static string Required(string value, string name, int max) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > max ? throw new ArgumentException($"{name} is required and must not exceed {max} characters.", name) : value.Trim();
     private static string? Optional(string? value, int max) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length > max ? throw new ArgumentException($"Value must not exceed {max} characters.") : value.Trim();
@@ -50,12 +53,30 @@ public sealed class StaffProfile : ITenantOwned
 public sealed class StaffSensitiveRecord : ITenantOwned
 {
     private StaffSensitiveRecord() { }
-    public StaffSensitiveRecord(Guid tenantId, Guid staffId, string? address, string? nextOfKinName, string? nextOfKinPhone, string? notes, DateTimeOffset updatedAtUtc)
-    { TenantId = tenantId; StaffId = staffId; Update(address, nextOfKinName, nextOfKinPhone, notes, updatedAtUtc); }
+    public StaffSensitiveRecord(Guid tenantId, Guid staffId, string? address, string? nextOfKinName, string? nextOfKinPhone, string? notes, string? title, string? middleName,
+        string? gender, DateOnly? dateOfBirth, string? maritalStatus, string? religion, string? country, string? state, string? localGovernment, string? city,
+        string? genotype, string? bloodGroup, decimal? weightKg, decimal? heightCm, string? disability, string? skills, string? achievements,
+        string? website, string? officeAddress, string? socialProfilesJson, DateTimeOffset updatedAtUtc)
+    { TenantId = tenantId; StaffId = staffId; Update(address, nextOfKinName, nextOfKinPhone, notes, title, middleName, gender, dateOfBirth, maritalStatus, religion, country, state, localGovernment, city, genotype, bloodGroup, weightKg, heightCm, disability, skills, achievements, website, officeAddress, socialProfilesJson, updatedAtUtc); }
     public Guid TenantId { get; private set; } public Guid StaffId { get; private set; } public string? Address { get; private set; } public string? NextOfKinName { get; private set; }
     public string? NextOfKinPhone { get; private set; } public string? Notes { get; private set; } public DateTimeOffset UpdatedAtUtc { get; private set; }
-    public void Update(string? address, string? nextOfKinName, string? nextOfKinPhone, string? notes, DateTimeOffset now)
-    { Address = Limit(address, 1000); NextOfKinName = Limit(nextOfKinName, 200); NextOfKinPhone = Limit(nextOfKinPhone, 30); Notes = Limit(notes, 2000); UpdatedAtUtc = now; }
+    public string? Title { get; private set; } public string? MiddleName { get; private set; } public string? Gender { get; private set; } public DateOnly? DateOfBirth { get; private set; }
+    public string? MaritalStatus { get; private set; } public string? Religion { get; private set; } public string? Country { get; private set; } public string? State { get; private set; }
+    public string? LocalGovernment { get; private set; } public string? City { get; private set; } public string? Genotype { get; private set; } public string? BloodGroup { get; private set; }
+    public decimal? WeightKg { get; private set; } public decimal? HeightCm { get; private set; } public string? Disability { get; private set; } public string? Skills { get; private set; }
+    public string? Achievements { get; private set; } public string? Website { get; private set; } public string? OfficeAddress { get; private set; } public string? SocialProfilesJson { get; private set; }
+    public void Update(string? address, string? nextOfKinName, string? nextOfKinPhone, string? notes, string? title, string? middleName, string? gender, DateOnly? dateOfBirth,
+        string? maritalStatus, string? religion, string? country, string? state, string? localGovernment, string? city, string? genotype, string? bloodGroup,
+        decimal? weightKg, decimal? heightCm, string? disability, string? skills, string? achievements, string? website, string? officeAddress, string? socialProfilesJson, DateTimeOffset now)
+    {
+        Address = Limit(address, 1000); NextOfKinName = Limit(nextOfKinName, 200); NextOfKinPhone = Limit(nextOfKinPhone, 30); Notes = Limit(notes, 2000);
+        Title = Limit(title, 30); MiddleName = Limit(middleName, 100); Gender = Limit(gender, 30); DateOfBirth = dateOfBirth; MaritalStatus = Limit(maritalStatus, 40);
+        Religion = Limit(religion, 80); Country = Limit(country, 100); State = Limit(state, 100); LocalGovernment = Limit(localGovernment, 150); City = Limit(city, 150);
+        Genotype = Limit(genotype, 10); BloodGroup = Limit(bloodGroup, 10); WeightKg = Positive(weightKg, 500, nameof(weightKg)); HeightCm = Positive(heightCm, 300, nameof(heightCm));
+        Disability = Limit(disability, 1000); Skills = Limit(skills, 2000); Achievements = Limit(achievements, 3000); Website = Limit(website, 500);
+        OfficeAddress = Limit(officeAddress, 1000); SocialProfilesJson = Limit(socialProfilesJson, 4000); UpdatedAtUtc = now;
+    }
+    private static decimal? Positive(decimal? value, decimal max, string name) => value is null ? null : value <= 0 || value > max ? throw new ArgumentException($"{name} is outside the permitted range.", name) : value;
     private static string? Limit(string? value, int max) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length > max ? throw new ArgumentException($"Value must not exceed {max} characters.") : value.Trim();
 }
 

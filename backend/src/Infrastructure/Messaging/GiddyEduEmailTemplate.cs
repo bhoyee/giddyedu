@@ -6,10 +6,13 @@ public sealed record EmailContent(string HtmlBody, string TextBody);
 
 public static class GiddyEduEmailTemplate
 {
-    public static EmailContent Create(string heading, string message, string? actionLabel = null, string? actionUrl = null, string? verificationCode = null, string? supportingText = null)
+    public static EmailContent Create(string heading, string message, string? actionLabel = null, string? actionUrl = null, string? verificationCode = null, string? supportingText = null,
+        string? organizationName = null, string? secondaryActionLabel = null, string? secondaryActionUrl = null)
     {
         var safeHeading = Encode(heading);
         var safeMessage = Encode(message);
+        var organization = string.IsNullOrWhiteSpace(organizationName) ? string.Empty : $"<tr><td style=\"padding:34px 48px 0;color:#2a6d50;font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase\">An invitation from</td></tr><tr><td style=\"padding:7px 48px 0;color:#17271f;font-size:21px;line-height:29px;font-weight:800\">{Encode(organizationName)}</td></tr>";
+        var secondaryAction = string.IsNullOrWhiteSpace(secondaryActionLabel) || string.IsNullOrWhiteSpace(secondaryActionUrl) ? string.Empty : $"<tr><td style=\"padding:0 48px 25px;color:#52625a;font-size:13px\">Already set up? <a href=\"{Encode(secondaryActionUrl)}\" style=\"color:#18583d;font-weight:700\">{Encode(secondaryActionLabel)}</a></td></tr>";
         var action = string.IsNullOrWhiteSpace(actionLabel) || string.IsNullOrWhiteSpace(actionUrl) ? string.Empty : $"""
             <tr><td style="padding:4px 48px 30px">
               <table role="presentation" cellspacing="0" cellpadding="0"><tr><td style="border-radius:12px;background:#12372a">
@@ -39,10 +42,11 @@ public static class GiddyEduEmailTemplate
                         <td align="right" style="color:#b8d0c1;font-size:10px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase">Secure account service</td>
                       </tr></table>
                     </td></tr>
-                    <tr><td style="padding:42px 48px 10px;color:#2a6d50;font-size:11px;line-height:16px;font-weight:800;letter-spacing:1.7px;text-transform:uppercase">GiddyEdu notification</td></tr>
+                    {organization}
+                    <tr><td style="padding:{(organizationName is null ? "42px" : "28px")} 48px 10px;color:#2a6d50;font-size:11px;line-height:16px;font-weight:800;letter-spacing:1.7px;text-transform:uppercase">{(organizationName is null ? "GiddyEdu notification" : "Staff account invitation")}</td></tr>
                     <tr><td style="padding:0 48px 16px;color:#17271f;font-size:30px;line-height:37px;font-weight:800;letter-spacing:-.8px">{safeHeading}</td></tr>
                     <tr><td style="padding:0 48px 28px;color:#52625a;font-size:16px;line-height:26px">{safeMessage}</td></tr>
-                    {code}{action}{supporting}
+                    {code}{action}{secondaryAction}{supporting}
                     <tr><td style="padding:24px 48px;background:#f8faf8;border-top:1px solid #e3e9e4">
                       <p style="margin:0 0 8px;color:#35473d;font-size:13px;line-height:20px;font-weight:700">Security reminder</p>
                       <p style="margin:0;color:#718078;font-size:12px;line-height:19px">GiddyEdu will never ask you to share a password or verification code by email, phone or message.</p>
@@ -53,7 +57,7 @@ public static class GiddyEduEmailTemplate
               </table>
             </body></html>
             """;
-        var text = $"GiddyEdu\n\n{heading}\n\n{message}{(verificationCode is null ? string.Empty : $"\n\nVerification code: {verificationCode}")}{(actionUrl is null ? string.Empty : $"\n\n{actionLabel}: {actionUrl}")}{(supportingText is null ? string.Empty : $"\n\n{supportingText}")}\n\nSecurity reminder: GiddyEdu will never ask you to share a password or verification code.";
+        var text = $"GiddyEdu{(organizationName is null ? string.Empty : $"\nInvitation from: {organizationName}")}\n\n{heading}\n\n{message}{(verificationCode is null ? string.Empty : $"\n\nVerification code: {verificationCode}")}{(actionUrl is null ? string.Empty : $"\n\n{actionLabel}: {actionUrl}")}{(secondaryActionUrl is null ? string.Empty : $"\n\n{secondaryActionLabel}: {secondaryActionUrl}")}{(supportingText is null ? string.Empty : $"\n\n{supportingText}")}\n\nSecurity reminder: GiddyEdu will never ask you to share a password or verification code.";
         return new(html, text);
     }
 

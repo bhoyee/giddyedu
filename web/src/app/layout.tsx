@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
 import { CookieConsent } from "@/components/cookie-consent";
+import { AppToast } from "@/components/app-toast";
 
 export const metadata: Metadata = {
   title: "GiddyEdu — School Operating Platform",
@@ -18,5 +19,5 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { themeColor: "#12372a", colorScheme: "light" };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
-  return <html lang="en" className="h-full antialiased"><body className="flex min-h-full flex-col">{children}<ServiceWorkerRegistration /><CookieConsent /></body></html>;
+  return <html lang="en" className="h-full antialiased"><body className="flex min-h-full flex-col">{children}<AppToast /><ServiceWorkerRegistration /><CookieConsent /></body></html>;
 }

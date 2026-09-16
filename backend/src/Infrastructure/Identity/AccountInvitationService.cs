@@ -52,8 +52,21 @@ public sealed class AccountInvitationService(GiddyEduDbContext db, ITenantContex
 
         var baseUrl = configuration["App:PublicBaseUrl"]?.TrimEnd('/') ?? "http://localhost:3000";
         var link = $"{baseUrl}/accept-invitation?token={Uri.EscapeDataString(rawToken)}";
-        var content = GiddyEduEmailTemplate.Create("You’re invited to GiddyEdu", "A school has invited you to join its secure GiddyEdu workspace.", "Accept invitation", link, supportingText: "This invitation expires in three days. If you were not expecting it, you can safely ignore this email.");
-        var payload = JsonSerializer.Serialize(new EmailNotificationPayload("Your GiddyEdu invitation", content.HtmlBody, content.TextBody));
+        var schoolName = await db.SchoolProfiles.Where(x => x.TenantId == tenantId).Select(x => x.DisplayName).SingleOrDefaultAsync(ct)
+            ?? await db.Tenants.Where(x => x.Id == tenantId).Select(x => x.Name).SingleAsync(ct);
+        var campusName = input.TargetType == InvitationTargetType.Staff
+            ? await db.StaffProfiles.Where(x => x.Id == input.TargetId).Join(db.Campuses, staff => staff.CampusId, campus => campus.Id, (_, campus) => campus.Name).SingleAsync(ct)
+            : null;
+        var isStaff = input.TargetType == InvitationTargetType.Staff;
+        var message = isStaff
+            ? $"{schoolName} has created your staff workspace for {campusName}. Your sign-in email is {email}. Use the secure invitation below to choose your password before signing in."
+            : $"{schoolName} has invited you to join its secure school workspace.";
+        var content = GiddyEduEmailTemplate.Create(isStaff ? "Welcome to your staff workspace" : "You’re invited to GiddyEdu", message,
+            isStaff ? "Set up your staff account" : "Accept invitation", link,
+            supportingText: "This invitation expires in three days. If you were not expecting it, you can safely ignore this email.",
+            organizationName: schoolName, secondaryActionLabel: isStaff ? "Sign-in page" : null,
+            secondaryActionUrl: isStaff ? $"{baseUrl}/login" : null);
+        var payload = JsonSerializer.Serialize(new EmailNotificationPayload(isStaff ? $"{schoolName} | Set up your staff account" : $"{schoolName} | Your invitation", content.HtmlBody, content.TextBody));
         await notifications.EnqueueAsync("email", email, "identity.account-invitation", payload, ct);
         return new(invitation.Id, invitation.TargetType, invitation.TargetId, invitation.Email, invitation.ExpiresAtUtc);
     }
