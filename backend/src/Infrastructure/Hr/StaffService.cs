@@ -1,8 +1,10 @@
 using GiddyEdu.BuildingBlocks.Api;
+using System.Text;
 using GiddyEdu.BuildingBlocks.Tenancy;
 using GiddyEdu.BuildingBlocks.Time;
 using GiddyEdu.Infrastructure.Authorization;
 using GiddyEdu.Infrastructure.Persistence;
+using GiddyEdu.Infrastructure.Storage;
 using GiddyEdu.Modules.Hr.Domain;
 using GiddyEdu.Modules.Identity;
 using GiddyEdu.Modules.Subscriptions;
@@ -21,7 +23,8 @@ public sealed record StaffSensitiveInput(string? Address, string? NextOfKinName,
     string? Disability = null, string? Skills = null, string? Achievements = null, string? Website = null, string? OfficeAddress = null, string? SocialProfilesJson = null);
 public sealed record PositionInfo(Guid Id, string Name, string Code, StaffCategory Category, string CategoryName, bool IsCustom, bool IsActive);
 public sealed record StaffInfo(Guid Id, Guid? UserId, string StaffNumber, string FirstName, string LastName, StaffCategory Category,
-    StaffStatus Status, Guid CampusId, Guid? DepartmentId, Guid? PositionId, string? WorkEmail, string? Phone, DateOnly HireDate, DateOnly? ExitDate);
+    StaffStatus Status, Guid CampusId, Guid? DepartmentId, Guid? PositionId, string? WorkEmail, string? Phone, DateOnly HireDate, DateOnly? ExitDate,
+    DateTimeOffset CreatedAtUtc, string? PositionName = null, string? MiddleInitial = null, string? PhotoUrl = null);
 public sealed record StaffSensitiveInfo(string? Address, string? NextOfKinName, string? NextOfKinPhone, string? Notes, string? Title, string? MiddleName, string? Gender,
     DateOnly? DateOfBirth, string? MaritalStatus, string? Religion, string? Country, string? State, string? LocalGovernment, string? City, string? Genotype,
     string? BloodGroup, decimal? WeightKg, decimal? HeightCm, string? Disability, string? Skills, string? Achievements, string? Website, string? OfficeAddress,
@@ -32,6 +35,8 @@ public sealed record StaffQualificationInput(string Institution, string Name, st
 public sealed record StaffQualificationInfo(Guid Id, string Institution, string Name, string? FieldOfStudy, DateOnly AwardedOn, string? Grade);
 public sealed record StaffNextOfKinInput(string FullName, string Relationship, string Phone, string? Email, string? Address, bool IsPrimary);
 public sealed record StaffNextOfKinInfo(Guid Id, string FullName, string Relationship, string Phone, string? Email, string? Address, bool IsPrimary);
+public sealed record StaffRoleAccessInfo(Guid MembershipId, Guid[] RoleIds);
+public sealed record StaffExportInput(Guid[] StaffIds);
 public sealed record TeachingAssignmentInput(Guid StaffId, Guid ClassSectionId, Guid? SubjectId, TeachingAssignmentRole Role);
 public sealed record TeachingAssignmentInfo(Guid Id, Guid StaffId, Guid ClassSectionId, Guid? SubjectId, TeachingAssignmentRole Role);
 
@@ -41,8 +46,10 @@ public interface IStaffService
     Task<Guid> CreatePositionAsync(Guid actor, PositionInput input, CancellationToken ct = default);
     Task UpdatePositionAsync(Guid actor, Guid positionId, PositionInput input, CancellationToken ct = default);
     Task DeletePositionAsync(Guid actor, Guid positionId, CancellationToken ct = default);
-    Task<PageResult<StaffInfo>> ListAsync(Guid actor, int page, int pageSize, string? search, StaffStatus? status, CancellationToken ct = default);
+    Task<PageResult<StaffInfo>> ListAsync(Guid actor, int page, int pageSize, string? search, StaffStatus? status, StaffCategory? category = null, string? sort = null, CancellationToken ct = default);
     Task<StaffInfo> GetAsync(Guid actor, Guid id, CancellationToken ct = default);
+    Task<StaffRoleAccessInfo?> GetRoleAccessAsync(Guid actor, Guid id, CancellationToken ct = default);
+    Task<string> ExportSelectedAsync(Guid actor, StaffExportInput input, CancellationToken ct = default);
     Task<Guid> CreateAsync(Guid actor, StaffInput input, CancellationToken ct = default);
     Task UpdateAsync(Guid actor, Guid id, StaffInput input, CancellationToken ct = default);
     Task SetStatusAsync(Guid actor, Guid id, StaffStatusInput input, CancellationToken ct = default);
@@ -64,7 +71,7 @@ public interface IStaffService
     Task DeleteTeachingAssignmentAsync(Guid actor, Guid assignmentId, CancellationToken ct = default);
 }
 
-public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IFeatureAccessGuard access, IPermissionService permissions, IClock clock) : IStaffService
+public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IFeatureAccessGuard access, IPermissionService permissions, IClock clock, IFileObjectStorage storage) : IStaffService
 {
     public async Task<IReadOnlyList<PositionInfo>> ListPositionsAsync(Guid actor, CancellationToken ct = default)
     { await DemandAsync(actor, Permissions.StaffView, ct); await EnsureDefaultPositionsAsync(ct); return await db.Positions.AsNoTracking().OrderBy(x => x.Category).ThenBy(x => x.Name).Select(x => new PositionInfo(x.Id, x.Name, x.Code, x.Category, x.Category == StaffCategory.Teaching ? "Teaching" : x.Category == StaffCategory.Administrative ? "Administrative" : "Non-teaching", x.IsCustom, x.IsActive)).ToListAsync(ct); }
@@ -106,18 +113,73 @@ public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IF
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task<PageResult<StaffInfo>> ListAsync(Guid actor, int page, int pageSize, string? search, StaffStatus? status, CancellationToken ct = default)
+    public async Task<PageResult<StaffInfo>> ListAsync(Guid actor, int page, int pageSize, string? search, StaffStatus? status, StaffCategory? category = null, string? sort = null, CancellationToken ct = default)
     {
         await DemandAsync(actor, Permissions.StaffView, ct); RequireTenant(); page = Math.Max(1, page); pageSize = Math.Clamp(pageSize, 1, 100);
-        var query = db.StaffProfiles.AsNoTracking().Where(x => !status.HasValue || x.Status == status);
+        var query = db.StaffProfiles.AsNoTracking().Where(x => (!status.HasValue || x.Status == status) && (!category.HasValue || x.Category == category));
         if (!await permissions.HasPermissionAsync(actor, Permissions.StaffManage, ct)) query = query.Where(x => x.UserId == actor);
-        if (!string.IsNullOrWhiteSpace(search)) { var term = search.Trim(); query = query.Where(x => x.StaffNumber.Contains(term) || x.FirstName.Contains(term) || x.LastName.Contains(term)); }
-        var total = await query.LongCountAsync(ct); var items = await query.OrderBy(x => x.LastName).ThenBy(x => x.FirstName).Skip((page - 1) * pageSize).Take(pageSize).Select(Project()).ToListAsync(ct);
+        if (!string.IsNullOrWhiteSpace(search)) { var term = search.Trim(); query = query.Where(x => x.StaffNumber.Contains(term) || x.FirstName.Contains(term) || x.LastName.Contains(term) || (x.WorkEmail != null && x.WorkEmail.Contains(term)) || (x.Phone != null && x.Phone.Contains(term))); }
+        var ordered = sort switch
+        {
+            "name_desc" => query.OrderByDescending(x => x.LastName).ThenByDescending(x => x.FirstName),
+            "added_asc" => query.OrderBy(x => x.CreatedAtUtc).ThenBy(x => x.Id),
+            "added_desc" => query.OrderByDescending(x => x.CreatedAtUtc).ThenBy(x => x.Id),
+            "staff_number" => query.OrderBy(x => x.StaffNumber).ThenBy(x => x.Id),
+            _ => query.OrderBy(x => x.LastName).ThenBy(x => x.FirstName)
+        };
+        var total = await query.LongCountAsync(ct); var items = await ordered.Skip((page - 1) * pageSize).Take(pageSize).Select(Project()).ToListAsync(ct);
+        var ids = items.Select(x => x.Id).ToArray();
+        var positionIds = items.Where(x => x.PositionId.HasValue).Select(x => x.PositionId!.Value).Distinct().ToArray();
+        var positions = await db.Positions.AsNoTracking().Where(x => positionIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.Name, ct);
+        var showSensitiveDetails = await permissions.HasPermissionAsync(actor, Permissions.StaffSensitiveView, ct);
+        var middleNames = showSensitiveDetails
+            ? await db.StaffSensitiveRecords.AsNoTracking().Where(x => ids.Contains(x.StaffId) && x.MiddleName != null).ToDictionaryAsync(x => x.StaffId, x => x.MiddleName!, ct)
+            : new Dictionary<Guid, string>();
+        var photos = showSensitiveDetails
+            ? await db.StoredFiles.AsNoTracking().Where(x => ids.Contains(x.EntityId) && x.EntityType == "StaffProfile" && x.Category == "photo" && x.Status == GiddyEdu.Modules.Platform.Domain.StoredFileStatus.Available)
+                .OrderByDescending(x => x.CreatedAtUtc).Select(x => new { x.EntityId, x.ObjectKey }).ToListAsync(ct)
+            : [];
+        var photoKeys = photos.GroupBy(x => x.EntityId).ToDictionary(group => group.Key, group => group.First().ObjectKey);
+        items = items.Select(x => x with
+        {
+            PositionName = x.PositionId.HasValue && positions.TryGetValue(x.PositionId.Value, out var position) ? position : null,
+            MiddleInitial = middleNames.TryGetValue(x.Id, out var middleName) && !string.IsNullOrWhiteSpace(middleName) ? middleName.Trim()[..1].ToUpperInvariant() : null,
+            PhotoUrl = photoKeys.TryGetValue(x.Id, out var objectKey) ? storage.CreateDownloadUrl(objectKey) : null
+        }).ToList();
         return new(items, page, pageSize, total);
     }
 
     public async Task<StaffInfo> GetAsync(Guid actor, Guid id, CancellationToken ct = default)
     { await DemandAsync(actor, Permissions.StaffView, ct); RequireTenant(); var query = db.StaffProfiles.AsNoTracking().Where(x => x.Id == id); if (!await permissions.HasPermissionAsync(actor, Permissions.StaffManage, ct)) query = query.Where(x => x.UserId == actor); return await query.Select(Project()).SingleOrDefaultAsync(ct) ?? throw new KeyNotFoundException("Staff member was not found."); }
+
+    public async Task<StaffRoleAccessInfo?> GetRoleAccessAsync(Guid actor, Guid id, CancellationToken ct = default)
+    {
+        await ManageAsync(actor, ct);
+        if (!await permissions.HasPermissionAsync(actor, Permissions.RolesManage, ct)) throw new UnauthorizedAccessException("Roles.Manage permission is required.");
+        var staff = await FindAsync(id, ct);
+        if (!staff.UserId.HasValue) return null;
+        var membership = await db.TenantMemberships.AsNoTracking().SingleOrDefaultAsync(x => x.UserId == staff.UserId, ct);
+        if (membership is null) return null;
+        var roleIds = await db.TenantMembershipRoles.AsNoTracking().Where(x => x.MembershipId == membership.Id).Select(x => x.RoleId).ToArrayAsync(ct);
+        return new StaffRoleAccessInfo(membership.Id, roleIds);
+    }
+
+    public async Task<string> ExportSelectedAsync(Guid actor, StaffExportInput input, CancellationToken ct = default)
+    {
+        await ManageAsync(actor, ct);
+        var ids = input.StaffIds?.Distinct().ToArray() ?? [];
+        if (ids.Length is < 1 or > 100 || ids.Contains(Guid.Empty)) throw new ArgumentException("Select between 1 and 100 staff records.");
+        var staff = await db.StaffProfiles.AsNoTracking().Where(x => ids.Contains(x.Id)).OrderBy(x => x.LastName).ThenBy(x => x.FirstName)
+            .Select(x => new { x.StaffNumber, x.FirstName, x.LastName, x.WorkEmail, x.Phone, x.Category, x.Status, x.CreatedAtUtc }).ToListAsync(ct);
+        if (staff.Count != ids.Length) throw new KeyNotFoundException("One or more staff records were not found in this school.");
+        var csv = new StringBuilder("Staff ID,First name,Last name,Email,Phone,Category,Status,Added on (UTC)\r\n");
+        foreach (var person in staff)
+        {
+            csv.AppendJoin(',', CsvCell(person.StaffNumber), CsvCell(person.FirstName), CsvCell(person.LastName), CsvCell(person.WorkEmail), CsvCell(person.Phone),
+                CsvCell(person.Category.ToString()), CsvCell(person.Status.ToString()), CsvCell(person.CreatedAtUtc.ToString("O"))).Append("\r\n");
+        }
+        return csv.ToString();
+    }
 
     public async Task<Guid> CreateAsync(Guid actor, StaffInput input, CancellationToken ct = default)
     { await ManageAsync(actor, ct); var campusId = await ResolveCampusAsync(input.CampusId, null, ct); await ValidateReferencesAsync(input, campusId, ct); ValidateContact(input); await EnsureUniqueContactAsync(input.Email!, input.Phone!, null, ct); var id = Guid.NewGuid(); var staffNumber = await GenerateStaffNumberAsync(ct); var staff = new StaffProfile(id, RequireTenant(), staffNumber, input.FirstName, input.LastName, input.Category, campusId, input.DepartmentId, input.PositionId, input.Email, input.Phone, input.HireDate, clock.UtcNow); staff.SetInitialStatus(input.Status, clock.UtcNow); db.StaffProfiles.Add(staff); await db.SaveChangesAsync(ct); return id; }
@@ -128,7 +190,7 @@ public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IF
     public async Task SetStatusAsync(Guid actor, Guid id, StaffStatusInput input, CancellationToken ct = default)
     {
         await ManageAsync(actor, ct); var staff = await FindAsync(id, ct);
-        switch (input.Status) { case StaffStatus.Active: staff.Reactivate(clock.UtcNow); break; case StaffStatus.Suspended: staff.Suspend(clock.UtcNow); break; case StaffStatus.Exited when input.ExitDate.HasValue: staff.Exit(input.ExitDate.Value, clock.UtcNow); break; case StaffStatus.Exited: throw new ArgumentException("Exit date is required.", nameof(input)); }
+        switch (input.Status) { case StaffStatus.Exited when input.ExitDate.HasValue: staff.Exit(input.ExitDate.Value, clock.UtcNow); break; case StaffStatus.Exited: throw new ArgumentException("Exit date is required.", nameof(input)); default: staff.SetOperationalStatus(input.Status, clock.UtcNow); break; }
         await db.SaveChangesAsync(ct);
     }
 
@@ -194,17 +256,18 @@ public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IF
     }
     private static void ValidateContact(StaffInput input)
     {
-        if (string.IsNullOrWhiteSpace(input.Phone) || input.Phone.Length != 11 || input.Phone.Any(character => !char.IsAsciiDigit(character)))
+        if (StaffFieldNormalization.Phone(input.Phone) is null)
             throw new ArgumentException("Phone number must contain exactly 11 digits.", nameof(input));
-        if (string.IsNullOrWhiteSpace(input.Email) || !System.Net.Mail.MailAddress.TryCreate(input.Email, out _))
+        if (StaffFieldNormalization.Email(input.Email) is null)
             throw new ArgumentException("Enter a valid email address.", nameof(input));
     }
     private async Task EnsureUniqueContactAsync(string email, string phone, Guid? exceptStaffId, CancellationToken ct)
     {
-        var normalizedEmail = email.Trim().ToLowerInvariant();
-        if (await db.StaffProfiles.AnyAsync(x => (!exceptStaffId.HasValue || x.Id != exceptStaffId) && x.WorkEmail == normalizedEmail, ct))
+        var normalizedEmail = StaffFieldNormalization.Email(email)!;
+        var normalizedPhone = StaffFieldNormalization.Phone(phone)!;
+        if (await db.StaffProfiles.AnyAsync(x => (!exceptStaffId.HasValue || x.Id != exceptStaffId) && x.WorkEmail != null && x.WorkEmail.ToLower() == normalizedEmail, ct))
             throw new InvalidOperationException("A staff record already exists with this email address.");
-        if (await db.StaffProfiles.AnyAsync(x => (!exceptStaffId.HasValue || x.Id != exceptStaffId) && x.Phone == phone, ct))
+        if (await db.StaffProfiles.AnyAsync(x => (!exceptStaffId.HasValue || x.Id != exceptStaffId) && x.Phone == normalizedPhone, ct))
             throw new InvalidOperationException("A staff record already exists with this phone number.");
     }
     private async Task<Guid> ResolveCampusAsync(Guid requestedCampusId, Guid? existingCampusId, CancellationToken ct)
@@ -264,5 +327,11 @@ public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IF
     private Task ManageAsync(Guid actor, CancellationToken ct) => DemandAsync(actor, Permissions.StaffManage, ct);
     private Task DemandAsync(Guid actor, string permission, CancellationToken ct) => access.DemandAsync(actor, permission, FeatureKeys.StaffManagement, ct);
     private Guid RequireTenant() => tenant.TenantId ?? throw new InvalidOperationException("Tenant context is required.");
-    private static System.Linq.Expressions.Expression<Func<StaffProfile, StaffInfo>> Project() => x => new StaffInfo(x.Id, x.UserId, x.StaffNumber, x.FirstName, x.LastName, x.Category, x.Status, x.CampusId, x.DepartmentId, x.PositionId, x.WorkEmail, x.Phone, x.HireDate, x.ExitDate);
+    private static string CsvCell(string? value)
+    {
+        var safe = value ?? string.Empty;
+        if (safe.Length > 0 && "=+-@\t\r".Contains(safe[0])) safe = "'" + safe;
+        return $"\"{safe.Replace("\"", "\"\"")}\"";
+    }
+    private static System.Linq.Expressions.Expression<Func<StaffProfile, StaffInfo>> Project() => x => new StaffInfo(x.Id, x.UserId, x.StaffNumber, x.FirstName, x.LastName, x.Category, x.Status, x.CampusId, x.DepartmentId, x.PositionId, x.WorkEmail, x.Phone, x.HireDate, x.ExitDate, x.CreatedAtUtc, null, null);
 }

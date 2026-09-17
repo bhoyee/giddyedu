@@ -26,6 +26,8 @@ public sealed class PhaseOneDomainTests
         Assert.DoesNotContain("Greenfield <Academy>", content.HtmlBody);
         Assert.Contains("North Campus", content.HtmlBody);
         Assert.Contains("teacher@example.com", content.TextBody);
+        Assert.Contains("href=\"https://example.com/accept-invitation?token=abc\"", content.HtmlBody);
+        Assert.Contains("https://example.com/accept-invitation?token=abc", content.TextBody);
         Assert.Contains("https://example.com/login", content.TextBody);
     }
 
@@ -97,6 +99,52 @@ public sealed class PhaseOneDomainTests
         staff.Exit(new DateOnly(2027, 7, 31), DateTimeOffset.UtcNow);
         Assert.Equal("STAFF-1", staff.StaffNumber);
         Assert.Throws<InvalidOperationException>(() => staff.Reactivate(DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void StaffProfile_OperationalStatusCanChangeButExitedStaffCannotBeReactivated()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var staff = new StaffProfile(Guid.NewGuid(), Guid.NewGuid(), "staff-2", "Ada", "Okafor", StaffCategory.Teaching,
+            Guid.NewGuid(), null, null, "ada@example.test", "09096735531", new DateOnly(2026, 9, 1), now);
+
+        staff.SetOperationalStatus(StaffStatus.OnLeave, now.AddMinutes(1));
+        Assert.Equal(StaffStatus.OnLeave, staff.Status);
+        Assert.Throws<ArgumentException>(() => staff.SetOperationalStatus(StaffStatus.Exited, now.AddMinutes(2)));
+        staff.Exit(new DateOnly(2027, 7, 31), now.AddMinutes(3));
+        Assert.Throws<InvalidOperationException>(() => staff.SetOperationalStatus(StaffStatus.Active, now.AddMinutes(4)));
+    }
+
+    [Fact]
+    public void StaffProfile_NormalizesContactAndSpacingWithoutChangingNameCapitalization()
+    {
+        var staff = new StaffProfile(Guid.NewGuid(), Guid.NewGuid(), "stf-1", "  Mary   Ann  ", "  McDonald ", StaffCategory.Teaching,
+            Guid.NewGuid(), null, null, "  MARY.ANN@Example.Test  ", " 09096735531 ", new DateOnly(2026, 9, 1), DateTimeOffset.UtcNow);
+
+        Assert.Equal("Mary Ann", staff.FirstName);
+        Assert.Equal("McDonald", staff.LastName);
+        Assert.Equal("mary.ann@example.test", staff.WorkEmail);
+        Assert.Equal("09096735531", staff.Phone);
+    }
+
+    [Fact]
+    public void StaffNextOfKin_NormalizesEmailAndPhoneAndRejectsInvalidPhone()
+    {
+        var contact = new StaffNextOfKin(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "  Ada   Okafor ", "Sister", " 08012345678 ", " ADA@Example.Test ", null, true, DateTimeOffset.UtcNow);
+
+        Assert.Equal("Ada Okafor", contact.FullName);
+        Assert.Equal("08012345678", contact.Phone);
+        Assert.Equal("ada@example.test", contact.Email);
+        Assert.Throws<ArgumentException>(() => contact.Update("Ada", "Sister", "080 12345678", null, null, true, DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void StaffProfile_RejectsMalformedContactValues()
+    {
+        Assert.Throws<ArgumentException>(() => new StaffProfile(Guid.NewGuid(), Guid.NewGuid(), "stf-1", "Ada", "Okafor", StaffCategory.Teaching,
+            Guid.NewGuid(), null, null, "Ada <ada@example.test>", "09096735531", new DateOnly(2026, 9, 1), DateTimeOffset.UtcNow));
+        Assert.Throws<ArgumentException>(() => new StaffProfile(Guid.NewGuid(), Guid.NewGuid(), "stf-1", "Ada", "Okafor", StaffCategory.Teaching,
+            Guid.NewGuid(), null, null, "ada@example.test", "09096 735531", new DateOnly(2026, 9, 1), DateTimeOffset.UtcNow));
     }
 
     [Fact]

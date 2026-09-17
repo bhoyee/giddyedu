@@ -14,6 +14,7 @@ public interface IPhaseOneDocumentService
 {
     Task<IReadOnlyList<DocumentInfo>> ListAsync(Guid actor, string entityType, Guid entityId, CancellationToken ct = default);
     Task<FileUpload> BeginUploadAsync(Guid actor, string entityType, Guid entityId, BeginDocumentUploadInput input, CancellationToken ct = default);
+    Task UploadContentAsync(Guid actor, Guid fileId, Stream content, string contentType, long? contentLength, CancellationToken ct = default);
     Task CompleteUploadAsync(Guid actor, Guid fileId, string checksum, CancellationToken ct = default);
     Task<string> CreateDownloadUrlAsync(Guid actor, Guid fileId, CancellationToken ct = default);
     Task DeleteAsync(Guid actor, Guid fileId, CancellationToken ct = default);
@@ -23,7 +24,7 @@ public sealed class PhaseOneDocumentService(GiddyEduDbContext db, IFeatureAccess
 {
     private const long MaximumDocumentBytes = 10 * 1024 * 1024;
     private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase) { "application/pdf", "image/jpeg", "image/png" };
-    private static readonly HashSet<string> AllowedCategories = new(StringComparer.OrdinalIgnoreCase) { "photo", "identity", "admission", "medical", "qualification", "contract", "other" };
+    private static readonly HashSet<string> AllowedCategories = new(StringComparer.OrdinalIgnoreCase) { "photo", "signature", "identity", "admission", "medical", "qualification", "contract", "other" };
 
     public async Task<IReadOnlyList<DocumentInfo>> ListAsync(Guid actor, string entityType, Guid entityId, CancellationToken ct = default)
     {
@@ -38,7 +39,15 @@ public sealed class PhaseOneDocumentService(GiddyEduDbContext db, IFeatureAccess
         if (input.SizeBytes is <= 0 or > MaximumDocumentBytes) throw new ArgumentOutOfRangeException(nameof(input), "Documents must not exceed 10 MB.");
         if (!AllowedContentTypes.Contains(input.ContentType)) throw new ArgumentException("Only PDF, JPEG, and PNG documents are supported.", nameof(input));
         var category = input.Category.Trim().ToLowerInvariant(); if (!AllowedCategories.Contains(category)) throw new ArgumentException("Document category is not supported.", nameof(input));
+        if (category == "signature" && target != "StaffProfile") throw new ArgumentException("Signature documents are supported only for staff profiles.", nameof(input));
         return await files.BeginUploadAsync(input.FileName, input.ContentType, input.SizeBytes, category, target, entityId, actor, ct);
+    }
+
+    public async Task UploadContentAsync(Guid actor, Guid fileId, Stream content, string contentType, long? contentLength, CancellationToken ct = default)
+    {
+        var file = await FindAndAuthorizeAsync(actor, fileId, true, ct);
+        if (file.Status != StoredFileStatus.PendingUpload) throw new InvalidOperationException("Only pending documents can receive content.");
+        await files.UploadContentAsync(fileId, content, contentType, contentLength, ct);
     }
 
     public async Task CompleteUploadAsync(Guid actor, Guid fileId, string checksum, CancellationToken ct = default)

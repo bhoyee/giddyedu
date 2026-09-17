@@ -38,13 +38,20 @@ public sealed class StaffProfile : ITenantOwned
     public void Update(string staffNumber, string firstName, string lastName, StaffCategory category, Guid campusId, Guid? departmentId, Guid? positionId,
         string? workEmail, string? phone, DateOnly hireDate, DateTimeOffset now)
     {
-        StaffNumber = Required(staffNumber, nameof(staffNumber), 50).ToUpperInvariant(); FirstName = Required(firstName, nameof(firstName), 100); LastName = Required(lastName, nameof(lastName), 100);
-        Category = category; CampusId = campusId; DepartmentId = departmentId; PositionId = positionId; WorkEmail = Optional(workEmail, 320)?.ToLowerInvariant(); Phone = Optional(phone, 30); HireDate = hireDate; UpdatedAtUtc = now;
+        StaffNumber = Required(staffNumber, nameof(staffNumber), 50).ToUpperInvariant(); FirstName = StaffFieldNormalization.Name(firstName, nameof(firstName), 100); LastName = StaffFieldNormalization.Name(lastName, nameof(lastName), 100);
+        Category = category; CampusId = campusId; DepartmentId = departmentId; PositionId = positionId; WorkEmail = StaffFieldNormalization.Email(workEmail); Phone = StaffFieldNormalization.Phone(phone); HireDate = hireDate; UpdatedAtUtc = now;
     }
     public void LinkUser(Guid userId, DateTimeOffset now) { if (userId == Guid.Empty) throw new ArgumentException("User identifier is required.", nameof(userId)); UserId = userId; UpdatedAtUtc = now; }
     public void Suspend(DateTimeOffset now) { if (Status == StaffStatus.Exited) throw new InvalidOperationException("Exited staff cannot be suspended."); Status = StaffStatus.Suspended; UpdatedAtUtc = now; }
     public void Reactivate(DateTimeOffset now) { if (Status == StaffStatus.Exited) throw new InvalidOperationException("Exited staff cannot be reactivated."); Status = StaffStatus.Active; UpdatedAtUtc = now; }
     public void SetInitialStatus(StaffStatus status, DateTimeOffset now) { if (status == StaffStatus.Exited) throw new ArgumentException("Exited is not a valid initial staff status.", nameof(status)); Status = status; UpdatedAtUtc = now; }
+    public void SetOperationalStatus(StaffStatus status, DateTimeOffset now)
+    {
+        if (!Enum.IsDefined(status) || status == StaffStatus.Exited) throw new ArgumentException("Choose a valid non-exited staff status.", nameof(status));
+        if (Status == StaffStatus.Exited) throw new InvalidOperationException("Exited staff cannot be reactivated through a status edit.");
+        Status = status;
+        UpdatedAtUtc = now;
+    }
     public void Exit(DateOnly exitDate, DateTimeOffset now) { if (exitDate < HireDate) throw new ArgumentException("Exit date cannot precede hire date.", nameof(exitDate)); Status = StaffStatus.Exited; ExitDate = exitDate; UpdatedAtUtc = now; }
     private static string Required(string value, string name, int max) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > max ? throw new ArgumentException($"{name} is required and must not exceed {max} characters.", name) : value.Trim();
     private static string? Optional(string? value, int max) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length > max ? throw new ArgumentException($"Value must not exceed {max} characters.") : value.Trim();
@@ -70,9 +77,9 @@ public sealed class StaffSensitiveRecord : ITenantOwned
         decimal? weightKg, decimal? heightCm, string? disability, string? skills, string? achievements, string? website, string? officeAddress, string? socialProfilesJson, DateTimeOffset now)
     {
         Address = Limit(address, 1000); NextOfKinName = Limit(nextOfKinName, 200); NextOfKinPhone = Limit(nextOfKinPhone, 30); Notes = Limit(notes, 2000);
-        Title = Limit(title, 30); MiddleName = Limit(middleName, 100); Gender = Limit(gender, 30); DateOfBirth = dateOfBirth; MaritalStatus = Limit(maritalStatus, 40);
+        Title = Limit(title, 30); MiddleName = string.IsNullOrWhiteSpace(middleName) ? null : StaffFieldNormalization.Name(middleName, nameof(middleName), 100); Gender = Limit(gender, 30); DateOfBirth = dateOfBirth; MaritalStatus = Limit(maritalStatus, 40);
         Religion = Limit(religion, 80); Country = Limit(country, 100); State = Limit(state, 100); LocalGovernment = Limit(localGovernment, 150); City = Limit(city, 150);
-        Genotype = Limit(genotype, 10); BloodGroup = Limit(bloodGroup, 10); WeightKg = Positive(weightKg, 500, nameof(weightKg)); HeightCm = Positive(heightCm, 300, nameof(heightCm));
+        Genotype = Limit(genotype, 10)?.ToUpperInvariant(); BloodGroup = Limit(bloodGroup, 10)?.ToUpperInvariant(); WeightKg = Positive(weightKg, 500, nameof(weightKg)); HeightCm = Positive(heightCm, 300, nameof(heightCm));
         Disability = Limit(disability, 1000); Skills = Limit(skills, 2000); Achievements = Limit(achievements, 3000); Website = Limit(website, 500);
         OfficeAddress = Limit(officeAddress, 1000); SocialProfilesJson = Limit(socialProfilesJson, 4000); UpdatedAtUtc = now;
     }
@@ -121,10 +128,39 @@ public sealed class StaffNextOfKin : ITenantOwned
     public string Relationship { get; private set; } = null!; public string Phone { get; private set; } = null!; public string? Email { get; private set; } public string? Address { get; private set; }
     public bool IsPrimary { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; } public DateTimeOffset UpdatedAtUtc { get; private set; }
     public void Update(string fullName, string relationship, string phone, string? email, string? address, bool isPrimary, DateTimeOffset now)
-    { FullName = Required(fullName, nameof(fullName), 200); Relationship = Required(relationship, nameof(relationship), 100); Phone = Required(phone, nameof(phone), 30); Email = Optional(email, 320); Address = Optional(address, 1000); IsPrimary = isPrimary; UpdatedAtUtc = now; }
+    { FullName = StaffFieldNormalization.Name(fullName, nameof(fullName), 200); Relationship = Required(relationship, nameof(relationship), 100); Phone = StaffFieldNormalization.Phone(phone) ?? throw new ArgumentException("Phone number is required.", nameof(phone)); Email = StaffFieldNormalization.Email(email); Address = Optional(address, 1000); IsPrimary = isPrimary; UpdatedAtUtc = now; }
     public void RemovePrimary(DateTimeOffset now) { IsPrimary = false; UpdatedAtUtc = now; }
     private static string Required(string value, string name, int max) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > max ? throw new ArgumentException($"{name} is required and must not exceed {max} characters.", name) : value.Trim();
     private static string? Optional(string? value, int max) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length > max ? throw new ArgumentException($"Value must not exceed {max} characters.") : value.Trim();
+}
+
+public static class StaffFieldNormalization
+{
+    public static string Name(string value, string field, int maxLength)
+    {
+        var normalized = string.Join(' ', (value ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (normalized.Length is 0 || normalized.Length > maxLength)
+            throw new ArgumentException($"{field} is required and must not exceed {maxLength} characters.", field);
+        return normalized;
+    }
+
+    public static string? Email(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var normalized = value.Trim().ToLowerInvariant();
+        if (normalized.Length > 320 || !System.Net.Mail.MailAddress.TryCreate(normalized, out var address) || address.Address != normalized)
+            throw new ArgumentException("Enter a valid email address.", nameof(value));
+        return normalized;
+    }
+
+    public static string? Phone(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var normalized = value.Trim();
+        if (normalized.Length != 11 || normalized.Any(character => !char.IsAsciiDigit(character)))
+            throw new ArgumentException("Phone number must contain exactly 11 digits.", nameof(value));
+        return normalized;
+    }
 }
 
 public sealed class TeachingAssignment : ITenantOwned

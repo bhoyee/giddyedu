@@ -51,6 +51,7 @@ public static class PhaseOneEndpoints
         var documents = endpoints.MapGroup("/api/v1/documents").RequireRateLimiting("data-transfer");
         documents.MapGet("/{entityType}/{entityId:guid}", ListDocumentsAsync);
         documents.MapPost("/{entityType}/{entityId:guid}/uploads", BeginDocumentUploadAsync);
+        documents.MapPut("/{fileId:guid}/content", UploadDocumentContentAsync).DisableAntiforgery();
         documents.MapPost("/{fileId:guid}/complete", CompleteDocumentUploadAsync);
         documents.MapGet("/{fileId:guid}/download", DownloadDocumentAsync);
         documents.MapDelete("/{fileId:guid}", DeleteDocumentAsync);
@@ -111,7 +112,9 @@ public static class PhaseOneEndpoints
         hr.MapPut("/positions/{positionId:guid}", UpdatePositionAsync);
         hr.MapDelete("/positions/{positionId:guid}", DeletePositionAsync);
         hr.MapGet("/staff", ListStaffAsync);
+        hr.MapPost("/staff/export.csv", ExportSelectedStaffAsync).RequireRateLimiting("data-transfer");
         hr.MapGet("/staff/{staffId:guid}", GetStaffAsync);
+        hr.MapGet("/staff/{staffId:guid}/role-access", GetStaffRoleAccessAsync);
         hr.MapPost("/staff", CreateStaffAsync);
         hr.MapPut("/staff/{staffId:guid}", UpdateStaffAsync);
         hr.MapPut("/staff/{staffId:guid}/status", SetStaffStatusAsync);
@@ -288,11 +291,13 @@ public static class PhaseOneEndpoints
     private static async Task<IResult> CreateAccountInvitationAsync(CreateAccountInvitationInput input, ClaimsPrincipal principal, IAccountInvitationService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); var invitation = await service.CreateAsync(actor, input, ct); await audit.WriteAsync(actor, "AccountInvitation.Create", "AccountInvitation", invitation.Id.ToString(), "Succeeded", JsonSerializer.Serialize(new { invitation.TargetType, invitation.TargetId }), ct); return Results.Accepted($"/api/v1/account-invitations/{invitation.Id}", invitation); }
     private static async Task<IResult> AcceptAccountInvitationAsync(AcceptAccountInvitationInput input, IAccountInvitationService service, CancellationToken ct)
-    { var tenantId = await service.AcceptAsync(input, ct); return Results.Ok(new { tenantId }); }
+    { return Results.Ok(await service.AcceptAsync(input, ct)); }
     private static async Task<IResult> ListDocumentsAsync(string entityType, Guid entityId, ClaimsPrincipal principal, IPhaseOneDocumentService service, CancellationToken ct)
     { return Results.Ok(await service.ListAsync(UserId(principal), entityType, entityId, ct)); }
     private static async Task<IResult> BeginDocumentUploadAsync(string entityType, Guid entityId, BeginDocumentUploadInput input, ClaimsPrincipal principal, IPhaseOneDocumentService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); var upload = await service.BeginUploadAsync(actor, entityType, entityId, input, ct); await audit.WriteAsync(actor, "Document.BeginUpload", "StoredFile", upload.FileId.ToString(), "Succeeded", JsonSerializer.Serialize(new { entityType, entityId, input.Category }), ct); return Results.Created($"/api/v1/documents/{upload.FileId}", upload); }
+    private static async Task<IResult> UploadDocumentContentAsync(Guid fileId, HttpRequest request, ClaimsPrincipal principal, IPhaseOneDocumentService service, CancellationToken ct)
+    { await service.UploadContentAsync(UserId(principal), fileId, request.Body, request.ContentType ?? throw new ArgumentException("Content-Type is required."), request.ContentLength, ct); return Results.NoContent(); }
     private static async Task<IResult> CompleteDocumentUploadAsync(Guid fileId, CompleteDocumentUploadInput input, ClaimsPrincipal principal, IPhaseOneDocumentService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); await service.CompleteUploadAsync(actor, fileId, input.Checksum, ct); await audit.WriteAsync(actor, "Document.CompleteUpload", "StoredFile", fileId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
     private static async Task<IResult> DownloadDocumentAsync(Guid fileId, ClaimsPrincipal principal, IPhaseOneDocumentService service, IAuditWriter audit, CancellationToken ct)
@@ -349,8 +354,11 @@ public static class PhaseOneEndpoints
     { var actor = UserId(principal); await service.UpdatePositionAsync(actor, positionId, input, ct); await audit.WriteAsync(actor, "Position.Update", "Position", positionId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
     private static async Task<IResult> DeletePositionAsync(Guid positionId, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); await service.DeletePositionAsync(actor, positionId, ct); await audit.WriteAsync(actor, "Position.Delete", "Position", positionId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
-    private static async Task<IResult> ListStaffAsync(int page, int pageSize, string? search, StaffStatus? status, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListAsync(UserId(principal), page, pageSize == 0 ? 25 : pageSize, search, status, ct));
+    private static async Task<IResult> ListStaffAsync(int page, int pageSize, string? search, StaffStatus? status, StaffCategory? category, string? sort, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListAsync(UserId(principal), page, pageSize == 0 ? 25 : pageSize, search, status, category, sort, ct));
     private static async Task<IResult> GetStaffAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.GetAsync(UserId(principal), staffId, ct));
+    private static async Task<IResult> GetStaffRoleAccessAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.GetRoleAccessAsync(UserId(principal), staffId, ct));
+    private static async Task<IResult> ExportSelectedStaffAsync(StaffExportInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); var csv = await service.ExportSelectedAsync(actor, input, ct); await audit.WriteAsync(actor, "Staff.Export", "StaffProfile", "selected", "Succeeded", JsonSerializer.Serialize(new { Count = input.StaffIds?.Length ?? 0 }), ct); return Results.File(Encoding.UTF8.GetBytes($"\uFEFF{csv}"), "text/csv; charset=utf-8", "giddyedu-staff.csv"); }
     private static async Task<IResult> CreateStaffAsync(StaffInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct) => await CreatedHrAsync(await service.CreateAsync(UserId(principal), input, ct), "StaffProfile", "Staff.Create", principal, audit, ct);
     private static async Task<IResult> UpdateStaffAsync(Guid staffId, StaffInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); await service.UpdateAsync(actor, staffId, input, ct); await audit.WriteAsync(actor, "Staff.Update", "StaffProfile", staffId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }

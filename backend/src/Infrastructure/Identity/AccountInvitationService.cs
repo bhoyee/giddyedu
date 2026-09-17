@@ -21,11 +21,12 @@ namespace GiddyEdu.Infrastructure.Identity;
 public sealed record CreateAccountInvitationInput(InvitationTargetType TargetType, Guid TargetId);
 public sealed record AcceptAccountInvitationInput(string Token, string DisplayName, string Password);
 public sealed record AccountInvitationInfo(Guid Id, InvitationTargetType TargetType, Guid TargetId, string Email, DateTimeOffset ExpiresAtUtc);
+public sealed record AcceptedAccountInvitationInfo(string SchoolName, string? CampusName);
 
 public interface IAccountInvitationService
 {
     Task<AccountInvitationInfo> CreateAsync(Guid actorUserId, CreateAccountInvitationInput input, CancellationToken cancellationToken = default);
-    Task<Guid> AcceptAsync(AcceptAccountInvitationInput input, CancellationToken cancellationToken = default);
+    Task<AcceptedAccountInvitationInfo> AcceptAsync(AcceptAccountInvitationInput input, CancellationToken cancellationToken = default);
 }
 
 public sealed class AccountInvitationService(GiddyEduDbContext db, ITenantContext tenant, ITenantContextSetter tenantSetter,
@@ -63,7 +64,7 @@ public sealed class AccountInvitationService(GiddyEduDbContext db, ITenantContex
             : $"{schoolName} has invited you to join its secure school workspace.";
         var content = GiddyEduEmailTemplate.Create(isStaff ? "Welcome to your staff workspace" : "You’re invited to GiddyEdu", message,
             isStaff ? "Set up your staff account" : "Accept invitation", link,
-            supportingText: "This invitation expires in three days. If you were not expecting it, you can safely ignore this email.",
+            supportingText: $"This invitation expires in three days. If the button does not open the complete invitation, copy this full link into your browser: {link} If you were not expecting it, you can safely ignore this email.",
             organizationName: schoolName, secondaryActionLabel: isStaff ? "Sign-in page" : null,
             secondaryActionUrl: isStaff ? $"{baseUrl}/login" : null);
         var payload = JsonSerializer.Serialize(new EmailNotificationPayload(isStaff ? $"{schoolName} | Set up your staff account" : $"{schoolName} | Your invitation", content.HtmlBody, content.TextBody));
@@ -71,7 +72,7 @@ public sealed class AccountInvitationService(GiddyEduDbContext db, ITenantContex
         return new(invitation.Id, invitation.TargetType, invitation.TargetId, invitation.Email, invitation.ExpiresAtUtc);
     }
 
-    public async Task<Guid> AcceptAsync(AcceptAccountInvitationInput input, CancellationToken ct = default)
+    public async Task<AcceptedAccountInvitationInfo> AcceptAsync(AcceptAccountInvitationInput input, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(input.Token)) throw new ArgumentException("Invitation token is required.", nameof(input));
         var invitation = await db.AccountInvitations.IgnoreQueryFilters().SingleOrDefaultAsync(x => x.TokenHash == Hash(input.Token), ct) ?? throw new KeyNotFoundException("Invitation was not found.");
@@ -95,7 +96,14 @@ public sealed class AccountInvitationService(GiddyEduDbContext db, ITenantContex
             if (!await db.TenantMembershipRoles.AnyAsync(x => x.MembershipId == membership.Id && x.RoleId == roleId, ct)) db.TenantMembershipRoles.Add(new TenantMembershipRole(invitation.TenantId, membership.Id, roleId));
             invitation.Accept(clock.UtcNow);
             db.AuditRecords.Add(new AuditRecord(Guid.NewGuid(), invitation.TenantId, user.Id, "AccountInvitation.Accept", "AccountInvitation", invitation.Id.ToString(), "Succeeded", clock.UtcNow, JsonSerializer.Serialize(new { invitation.TargetType, invitation.TargetId })));
-            await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct); return invitation.TenantId;
+            var schoolName = await db.SchoolProfiles.Where(x => x.TenantId == invitation.TenantId).Select(x => x.DisplayName).SingleOrDefaultAsync(ct)
+                ?? await db.Tenants.Where(x => x.Id == invitation.TenantId).Select(x => x.Name).SingleAsync(ct);
+            var campusName = invitation.TargetType == InvitationTargetType.Staff
+                ? await db.StaffProfiles.Where(x => x.Id == invitation.TargetId)
+                    .Join(db.Campuses, staff => staff.CampusId, campus => campus.Id, (_, campus) => campus.Name).SingleOrDefaultAsync(ct)
+                : null;
+            await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct);
+            return new AcceptedAccountInvitationInfo(schoolName, campusName);
         }
         finally { tenantSetter.Clear(); }
     }

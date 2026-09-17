@@ -8,6 +8,8 @@ using GiddyEdu.Infrastructure.Hr;
 using GiddyEdu.Modules.Academics.Domain;
 using GiddyEdu.Modules.Tenancy.Domain;
 using GiddyEdu.Modules.Hr.Domain;
+using GiddyEdu.Modules.Identity;
+using GiddyEdu.Modules.Platform.Domain;
 using GiddyEdu.Infrastructure.StudentLifecycle;
 using GiddyEdu.Infrastructure.Storage;
 using GiddyEdu.Modules.StudentLifecycle.Domain;
@@ -147,6 +149,40 @@ public sealed class PhaseOneIsolationTests
         fixture.Context.Set(fixture.TenantB, null);
         var result = await fixture.Staff().ListAsync(Guid.NewGuid(), 1, 25, null, null);
         Assert.Empty(result.Items);
+    }
+
+    [Fact]
+    public async Task StaffExport_RejectsCrossTenantSelection()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Context.Set(fixture.TenantA, null);
+        var staffId = await fixture.Staff().CreateAsync(Guid.NewGuid(), new(null, "Ada", "Okafor", StaffCategory.Teaching, fixture.CampusA, null, null, "ada.export@example.com", "09096735001", new(2026, 9, 1)));
+        fixture.Context.Set(fixture.TenantB, null);
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => fixture.Staff().ExportSelectedAsync(Guid.NewGuid(), new([staffId])));
+    }
+
+    [Fact]
+    public async Task StaffExport_EscapesSpreadsheetFormulas()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Context.Set(fixture.TenantA, null);
+        var staffId = await fixture.Staff().CreateAsync(Guid.NewGuid(), new(null, "=HYPERLINK", "Okafor", StaffCategory.Teaching, fixture.CampusA, null, null, "ada.export@example.com", "09096735001", new(2026, 9, 1)));
+
+        var csv = await fixture.Staff().ExportSelectedAsync(Guid.NewGuid(), new([staffId]));
+
+        Assert.Contains("\"'=HYPERLINK\"", csv);
+    }
+
+    [Fact]
+    public async Task StaffRoleAccess_RejectsCrossTenantStaff()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Context.Set(fixture.TenantA, null);
+        var staffId = await fixture.Staff().CreateAsync(Guid.NewGuid(), new(null, "Ada", "Okafor", StaffCategory.Teaching, fixture.CampusA, null, null, "ada.role@example.com", "09096735001", new(2026, 9, 1)));
+        fixture.Context.Set(fixture.TenantB, null);
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => fixture.Staff().GetRoleAccessAsync(Guid.NewGuid(), staffId));
     }
 
     [Fact]
@@ -328,6 +364,42 @@ public sealed class PhaseOneIsolationTests
         await Assert.ThrowsAsync<KeyNotFoundException>(() => documents.ListAsync(actor, "Student", otherId));
     }
 
+    [Fact]
+    public async Task StaffDocumentContent_RejectsAnotherStaffMembersUpload()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
+        var actor = Guid.NewGuid(); var ownId = Guid.NewGuid(); var otherId = Guid.NewGuid();
+        var own = new StaffProfile(ownId, fixture.TenantA, "STF-OWN", "Ada", "Okafor", StaffCategory.Teaching, fixture.CampusA, null, null, "ada@example.test", "08012345678", new DateOnly(2026, 9, 1), fixture.Clock.UtcNow);
+        own.LinkUser(actor, fixture.Clock.UtcNow);
+        fixture.Db.StaffProfiles.AddRange(own, new StaffProfile(otherId, fixture.TenantA, "STF-OTHER", "Bola", "Eze", StaffCategory.Teaching, fixture.CampusA, null, null, "bola@example.test", "08012345679", new DateOnly(2026, 9, 1), fixture.Clock.UtcNow));
+        var fileId = Guid.NewGuid();
+        fixture.Db.StoredFiles.Add(new StoredFile(fileId, fixture.TenantA, "staff/other/signature.png", "signature.png", "image/png", 3, "signature", "StaffProfile", otherId, Guid.NewGuid(), fixture.Clock.UtcNow));
+        await fixture.Db.SaveChangesAsync();
+        var documents = new PhaseOneDocumentService(fixture.Db, new AllowedAccess(), new ViewOnlyPermissions(), new UnusedFileService());
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => documents.UploadContentAsync(actor, fileId, new MemoryStream([1, 2, 3]), "image/png", 3));
+    }
+
+    [Fact]
+    public async Task StaffDirectory_PhotoUrlRequiresSensitivePermissionAndAvailableFile()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
+        var actor = Guid.NewGuid(); var staffId = Guid.NewGuid();
+        var staff = new StaffProfile(staffId, fixture.TenantA, "STF-PHOTO", "Ada", "Okafor", StaffCategory.Teaching, fixture.CampusA, null, null, "ada@example.test", "08012345678", new DateOnly(2026, 9, 1), fixture.Clock.UtcNow);
+        staff.LinkUser(actor, fixture.Clock.UtcNow);
+        fixture.Db.StaffProfiles.Add(staff);
+        var photo = new StoredFile(Guid.NewGuid(), fixture.TenantA, "staff/photo.png", "photo.png", "image/png", 3, "photo", "StaffProfile", staffId, actor, fixture.Clock.UtcNow);
+        photo.MarkAvailable(new string('A', 64));
+        fixture.Db.StoredFiles.Add(photo);
+        await fixture.Db.SaveChangesAsync();
+
+        var withoutSensitiveAccess = await fixture.Staff(new StaffViewOnlyPermissions()).ListAsync(actor, 1, 20, null, null);
+        var withSensitiveAccess = await fixture.Staff().ListAsync(actor, 1, 20, null, null);
+
+        Assert.Null(Assert.Single(withoutSensitiveAccess.Items).PhotoUrl);
+        Assert.Equal("https://files.example.test/staff/photo.png", Assert.Single(withSensitiveAccess.Items).PhotoUrl);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         private Fixture(GiddyEduDbContext db, TenantContextAccessor context, Guid tenantA, Guid tenantB, Guid campusA, SystemClock clock)
@@ -335,7 +407,7 @@ public sealed class PhaseOneIsolationTests
         public GiddyEduDbContext Db { get; } public TenantContextAccessor Context { get; } public Guid TenantA { get; } public Guid TenantB { get; } public Guid CampusA { get; } public SystemClock Clock { get; }
         public AcademicStructureService Academics() => new(Db, Context, new AllowedAccess(), Clock);
         public SchoolAdministrationService Schools() => new(Db, Context, new AllowedAccess(), new UnusedFileService(), Clock);
-        public StaffService Staff(IPermissionService? permissions = null) => new(Db, Context, new AllowedAccess(), permissions ?? new AllowedPermissions(), Clock);
+        public StaffService Staff(IPermissionService? permissions = null) => new(Db, Context, new AllowedAccess(), permissions ?? new AllowedPermissions(), Clock, new TestFileObjectStorage());
         public StudentLifecycleService Students(IPermissionService? permissions = null) => new(Db, Context, new AllowedAccess(), permissions ?? new AllowedPermissions(), Clock);
         public ValueTask DisposeAsync() => Db.DisposeAsync();
         public static async Task<Fixture> CreateAsync()
@@ -369,5 +441,20 @@ public sealed class PhaseOneIsolationTests
         public Task UploadContentAsync(Guid fileId, Stream content, string contentType, long? contentLength, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<string> CreateDownloadUrlAsync(Guid fileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task DeleteAsync(Guid fileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+    private sealed class StaffViewOnlyPermissions : IPermissionService
+    {
+        public Task<bool> HasPermissionAsync(Guid userId, string permission, CancellationToken cancellationToken = default) => Task.FromResult(permission == Permissions.StaffView);
+        public Task<IReadOnlyCollection<string>> GetEffectivePermissionsAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyCollection<string>>([]);
+    }
+    private sealed class TestFileObjectStorage : IFileObjectStorage
+    {
+        public string CreateUploadUrl(string objectKey, string contentType) => throw new NotSupportedException();
+        public string CreateDownloadUrl(string objectKey) => $"https://files.example.test/{objectKey}";
+        public Task<bool> ExistsAsync(string objectKey, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task DeleteAsync(string objectKey, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task UploadAsync(string objectKey, string contentType, Stream content, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<string> ReadTextAsync(string objectKey, long maximumBytes, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task WriteTextAsync(string objectKey, string contentType, string value, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 }

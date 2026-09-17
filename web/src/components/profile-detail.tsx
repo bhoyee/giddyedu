@@ -18,6 +18,7 @@ export function ProfileDetail({ id, kind, endpoint, backPath, title, fields, sen
   const [accessLoaded, setAccessLoaded] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [uploading, setUploading] = useState(false);
   const [revision, setRevision] = useState(0);
   const profile = (kind === "Student" && data?.student && typeof data.student === "object" && !Array.isArray(data.student) ? data.student : data) as Data | null;
 
@@ -65,15 +66,41 @@ export function ProfileDetail({ id, kind, endpoint, backPath, title, fields, sen
     setDocuments(current => current.filter(item => item.id !== fileId));
   }
 
+  async function uploadDocument(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManage || kind !== "StaffProfile") return;
+    const form = event.currentTarget;
+    const values = new FormData(form);
+    const file = values.get("file");
+    if (!(file instanceof File) || !file.size || file.size > 10 * 1024 * 1024 || !["application/pdf", "image/jpeg", "image/png"].includes(file.type)) {
+      setError("Choose a PDF, JPEG or PNG document no larger than 10 MB.");
+      return;
+    }
+    setUploading(true); setError("");
+    try {
+      const begin = await fetch(`/api/backend/documents/StaffProfile/${id}/uploads`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileName: file.name, contentType: file.type, sizeBytes: file.size, category: values.get("category") }) });
+      if (!begin.ok) throw new Error("The document upload could not be started.");
+      const upload = await begin.json() as { fileId: string; uploadUrl: string };
+      const stored = await fetch(upload.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+      if (!stored.ok) throw new Error("The document could not be stored.");
+      const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+      const checksum = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+      const complete = await fetch(`/api/backend/documents/${upload.fileId}/complete`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ checksum }) });
+      if (!complete.ok) throw new Error("The document upload could not be verified.");
+      form.reset(); setMessage("Document uploaded."); setRevision(value => value + 1);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "The document could not be uploaded."); }
+    finally { setUploading(false); }
+  }
+
   return <main className="min-h-screen bg-[#f6f4ee]">
     <header className="bg-[#12372a] text-white"><div className="mx-auto max-w-6xl px-6 py-5"><Link href={backPath} className="font-bold text-emerald-100">← Back</Link></div></header>
     <div className="mx-auto max-w-6xl space-y-8 px-6 py-10">
       <div><h1 className="text-4xl font-black">{title}</h1><p className="mt-2 text-slate-600">Record ID: {id}</p></div>
       {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-700">{error}</p>}
-      {!profile || !accessLoaded ? <section className="rounded-3xl bg-white p-8">Loading profile…</section> : <section className="rounded-3xl bg-white p-6 shadow-sm"><h2 className="text-xl font-black">Profile</h2>{canManage ? <form onSubmit={save} className="mt-5 grid gap-4 sm:grid-cols-2">{fields.map(field => <label key={field.name} className="text-sm font-semibold">{field.label}<input name={field.name} type={field.type ?? "text"} required={field.required !== false} defaultValue={String(profile[field.name] ?? "")} className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3" /></label>)}<button className="sm:col-span-2 rounded-xl bg-emerald-700 px-4 py-3 font-bold text-white">Save changes</button>{message && <p role="status" className="sm:col-span-2 text-sm text-emerald-800">{message}</p>}</form> : <dl className="mt-5 grid gap-4 sm:grid-cols-2">{fields.map(field => <div key={field.name} className="rounded-xl bg-slate-50 p-4"><dt className="text-xs font-bold uppercase text-slate-500">{field.label}</dt><dd className="mt-1 text-slate-900">{String(profile[field.name] ?? "—")}</dd></div>)}</dl>}</section>}
+      {!profile || !accessLoaded ? <section id="profile" className="scroll-mt-6 rounded-3xl bg-white p-8">Loading profile…</section> : <section id="profile" className="scroll-mt-6 rounded-3xl bg-white p-6 shadow-sm"><h2 className="text-xl font-black">Profile</h2>{canManage ? <form onSubmit={save} className="mt-5 grid gap-4 sm:grid-cols-2">{fields.map(field => <label key={field.name} className="text-sm font-semibold">{field.label}<input name={field.name} type={field.type ?? "text"} required={field.required !== false} defaultValue={String(profile[field.name] ?? "")} className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3" /></label>)}<button className="sm:col-span-2 rounded-xl bg-emerald-700 px-4 py-3 font-bold text-white">Save changes</button>{message && <p role="status" className="sm:col-span-2 text-sm text-emerald-800">{message}</p>}</form> : <dl className="mt-5 grid gap-4 sm:grid-cols-2">{fields.map(field => <div key={field.name} className="rounded-xl bg-slate-50 p-4"><dt className="text-xs font-bold uppercase text-slate-500">{field.label}</dt><dd className="mt-1 text-slate-900">{String(profile[field.name] ?? "—")}</dd></div>)}</dl>}</section>}
       {kind === "Student" && data && <section className="grid gap-6 lg:grid-cols-2"><JsonPanel title="Enrolment history" value={data.enrollments} /><JsonPanel title="Guardian relationships" value={data.guardians} /></section>}
       {sensitive && <JsonPanel title="Restricted information" value={sensitive} />}
-      <section className="rounded-3xl bg-white p-6 shadow-sm"><h2 className="text-xl font-black">Documents</h2>{documents.length === 0 ? <p className="mt-3 text-slate-600">No accessible documents.</p> : <ul className="mt-4 space-y-3">{documents.map(document => <li key={String(document.id)} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-4"><span><strong>{String(document.fileName)}</strong><br /><small>{String(document.category)} · {String(document.status)}</small></span><span className="flex gap-2"><button onClick={() => void download(String(document.id))} className="rounded-lg border px-3 py-2 text-sm">Download</button>{canManage && <button onClick={() => void remove(String(document.id))} className="rounded-lg border border-red-300 px-3 py-2 text-sm text-red-700">Delete</button>}</span></li>)}</ul>}</section>
+      <section id="documents" className="scroll-mt-6 rounded-3xl bg-white p-6 shadow-sm"><h2 className="text-xl font-black">Documents</h2>{kind === "StaffProfile" && canManage && <form onSubmit={uploadDocument} className="mt-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-[1fr_2fr_auto]"><label className="text-xs font-bold text-slate-700">Category<select name="category" required className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="identity">Identity</option><option value="qualification">Qualification</option><option value="contract">Contract</option><option value="photo">Photograph</option><option value="other">Other</option></select></label><label className="text-xs font-bold text-slate-700">PDF, JPEG or PNG · up to 10 MB<input name="file" type="file" accept="application/pdf,image/jpeg,image/png" required className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"/></label><button disabled={uploading} className="self-end rounded-lg bg-emerald-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{uploading ? "Uploading…" : "Upload document"}</button></form>}{documents.length === 0 ? <p className="mt-3 text-slate-600">No accessible documents.</p> : <ul className="mt-4 space-y-3">{documents.map(document => <li key={String(document.id)} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-4"><span><strong>{String(document.fileName)}</strong><br /><small>{String(document.category)} · {String(document.status)}</small></span><span className="flex gap-2"><button onClick={() => void download(String(document.id))} className="rounded-lg border px-3 py-2 text-sm">Download</button>{canManage && <button onClick={() => void remove(String(document.id))} className="rounded-lg border border-red-300 px-3 py-2 text-sm text-red-700">Delete</button>}</span></li>)}</ul>}</section>
     </div>
   </main>;
 }
