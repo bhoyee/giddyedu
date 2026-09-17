@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { staffKinRelationships } from "@/lib/staff-kin-relationships";
+import { confirmAction } from "@/components/confirm-action";
 
 type RecordValue = string | boolean | null;
 type StaffRecord = { id: string; [key: string]: RecordValue };
@@ -41,7 +42,7 @@ export function StaffRecordSections({ staffId, onChanged }: { staffId: string; o
   }
 
   async function remove(path: string, id: string) {
-    if (!window.confirm("Delete this record?")) return;
+    if (!await confirmAction({ title: "Delete staff record detail?", message: "This employment, qualification, or contact detail will be permanently deleted. This cannot be undone.", confirmLabel: "Delete detail", confirmText: "DELETE" })) return;
     const response = await fetch(`/api/backend/hr/staff/${staffId}/${path}/${id}`, { method: "DELETE" });
     if (!response.ok) { setError("The record could not be deleted."); return; }
     await load(); onChanged?.();

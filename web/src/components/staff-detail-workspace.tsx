@@ -5,6 +5,7 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { notify } from "@/components/app-toast";
+import { confirmAction } from "@/components/confirm-action";
 import { StaffAssignmentsPanel } from "@/components/staff-assignments-panel";
 import { StaffRecordSections } from "@/components/staff-record-sections";
 
@@ -13,11 +14,43 @@ type Sensitive = { title?:string|null; middleName?:string|null; gender?:string|n
 type Document = { id:string; fileName:string; category:string; status:string|number; createdAtUtc?:string };
 type Qualification = { id:string; name:string; institution:string; fieldOfStudy:string|null; awardedOn:string; grade:string|null };
 type Position = { id:string; name:string };
-type Tab = "overview"|"position"|"assignments"|"history"|"documents";
-const tabs:{id:Tab;label:string}[]=[{id:"overview",label:"Overview"},{id:"position",label:"Role & position"},{id:"assignments",label:"Classes & subjects"},{id:"history",label:"History & contacts"},{id:"documents",label:"Documents"}];
+type StaffPosition = { positionId:string; name:string; isPrimary:boolean };
+type Tab = "overview"|"position"|"assignments"|"attendance"|"timetable"|"salary"|"leaves"|"activity"|"history"|"documents";
+const tabs:{id:Tab;label:string}[]=[{id:"overview",label:"Overview"},{id:"position",label:"Role & position"},{id:"assignments",label:"Assignments"},{id:"attendance",label:"Attendance"},{id:"timetable",label:"Timetable"},{id:"salary",label:"Salary"},{id:"leaves",label:"Leaves"},{id:"activity",label:"Activity"},{id:"history",label:"History & contacts"},{id:"documents",label:"Documents"}];
+const plannedTabs:{id:Tab;title:string;description:string}[]=[
+  {id:"attendance",title:"Attendance",description:"Staff attendance records will appear here when the attendance workflow is available."},
+  {id:"timetable",title:"Timetable",description:"This view will show the staff member's scheduled classes and duties when timetable management is available."},
+  {id:"salary",title:"Salary",description:"Pay information will appear here when payroll is available. No salary figure is recorded in this profile yet."},
+  {id:"leaves",title:"Leaves",description:"Leave balances and requests will appear here when leave management is available."},
+  {id:"activity",title:"Activity",description:"Staff activity history will appear here when this view is connected to the audit records."},
+];
 const categories=["Teaching","Administrative","Non-teaching"];
 const statuses=["Active","Suspended","Exited","Away","Not cleared","Inactive","On leave","Retired","Resigned","Sacked","Left","Deceased"];
 const inputClass="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-[var(--tenant-primary,#28654a)] focus:ring-2 focus:ring-[var(--tenant-primary-soft,#e7f2eb)]";
+type ProfileIconKind="id"|"cap"|"calendar"|"mail"|"phone"|"briefcase"|"shield"|"person"|"file"|"place"|"heart"|"measure"|"skills"|"note"|"wallet"|"clock";
+const detailIcons:Record<string,ProfileIconKind>={
+  "Staff number":"id",Category:"briefcase",Status:"shield","Primary position":"briefcase","Email address":"mail","Phone number":"phone","Joined school":"calendar","Record created":"clock",Account:"person",
+  "Date of birth":"calendar",Gender:"person","Marital status":"heart",Religion:"person",State:"place","Local government":"place","City / town":"place","Residential address":"place",
+  "Blood group":"heart",Genotype:"heart",Height:"measure",Weight:"measure","Accessibility needs":"heart",Skills:"skills",Achievements:"cap","Internal notes":"note"
+};
+const iconPaths:Record<ProfileIconKind,string>={
+  id:"M3 5h18v14H3zM7 9h4M7 13h5M16 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z",
+  cap:"m2 9 10-5 10 5-10 5L2 9Zm4 3v5c3 2 9 2 12 0v-5M22 9v6",
+  calendar:"M7 3v4M17 3v4M4 9h16M5 5h14a1 1 0 0 1 1 1v13H4V6a1 1 0 0 1 1-1ZM8 13h3v3H8z",
+  mail:"M3 6h18v12H3zM3 7l9 7 9-7",
+  phone:"M7 3h10v18H7zM11 17h2",
+  briefcase:"M3 8h18v12H3zM8 8V5h8v3M3 13h18M11 13v2h2v-2",
+  shield:"m12 3 8 4v5c0 5-3 8-8 9-5-1-8-4-8-9V7l8-4Zm-3 9 2 2 4-4",
+  person:"M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21a8 8 0 0 1 16 0",
+  file:"M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6",
+  place:"M12 21s7-6 7-11a7 7 0 0 0-14 0c0 5 7 11 7 11Zm0-8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z",
+  heart:"M20.8 9c0 4.2-8.8 10-8.8 10S3.2 13.2 3.2 9a4.2 4.2 0 0 1 8.8-1 4.2 4.2 0 0 1 8.8 1Z",
+  measure:"M4 5h16v14H4zM8 5v4M12 5v3M16 5v4",
+  skills:"m12 3 2.5 5.5L20 11l-5.5 2.5L12 19l-2.5-5.5L4 11l5.5-2.5L12 3Z",
+  note:"M5 3h14v18H5zM8 8h8M8 12h8M8 16h5",
+  wallet:"M3 6h18v14H3zM3 10h18M15 14h4",
+  clock:"M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 4v5l3 2"
+};
 
 export function StaffDetailWorkspace({staffId}:{staffId:string}){
   const [staff,setStaff]=useState<Staff|null>(null);
@@ -25,6 +58,7 @@ export function StaffDetailWorkspace({staffId}:{staffId:string}){
   const [documents,setDocuments]=useState<Document[]>([]);
   const [qualifications,setQualifications]=useState<Qualification[]>([]);
   const [positionName,setPositionName]=useState<string|null>(null);
+  const [additionalPositions,setAdditionalPositions]=useState<StaffPosition[]>([]);
   const [tab,setTab]=useState<Tab>("overview");
   const [photoUrl,setPhotoUrl]=useState<string|null>(null);
   const [signatureUrl,setSignatureUrl]=useState<string|null>(null);
@@ -35,18 +69,20 @@ export function StaffDetailWorkspace({staffId}:{staffId:string}){
   const [revision,setRevision]=useState(0);
 
   const load=useCallback(async()=>{
-    const [profileResponse,sensitiveResponse,documentsResponse,qualificationsResponse,positionsResponse]=await Promise.all([
+    const [profileResponse,sensitiveResponse,documentsResponse,qualificationsResponse,positionsResponse,staffPositionsResponse]=await Promise.all([
       fetch(`/api/backend/hr/staff/${staffId}`,{cache:"no-store"}),
       fetch(`/api/backend/hr/staff/${staffId}/sensitive`,{cache:"no-store"}),
       fetch(`/api/backend/documents/StaffProfile/${staffId}`,{cache:"no-store"}),
       fetch(`/api/backend/hr/staff/${staffId}/qualifications`,{cache:"no-store"}),
-      fetch("/api/backend/hr/positions",{cache:"no-store"})
+      fetch("/api/backend/hr/positions",{cache:"no-store"}),
+      fetch(`/api/backend/hr/staff/${staffId}/positions`,{cache:"no-store"})
     ]);
     if(!profileResponse.ok)throw new Error(profileResponse.status===403?"You do not have access to this staff record.":"The staff record could not be loaded.");
     const profile=await profileResponse.json() as Staff;
     setStaff(profile);
     const positions=positionsResponse.ok?await positionsResponse.json() as Position[]:[];
     setPositionName(profile.positionName||positions.find(item=>item.id===profile.positionId)?.name||null);
+    setAdditionalPositions(staffPositionsResponse.ok?(await staffPositionsResponse.json() as StaffPosition[]).filter(item=>!item.isPrimary):[]);
     setQualifications(qualificationsResponse.ok?await qualificationsResponse.json() as Qualification[]:[]);
     setSensitive(sensitiveResponse.ok?await sensitiveResponse.json() as Sensitive:null);
     const files=documentsResponse.ok?await documentsResponse.json() as Document[]:[];
@@ -71,7 +107,7 @@ export function StaffDetailWorkspace({staffId}:{staffId:string}){
   useEffect(()=>{
     const syncHash=()=>{
       const hash=window.location.hash.slice(1);
-      const next:Record<string,Tab>={overview:"overview",profile:"overview","staff-profile":"overview",position:"position","staff-position":"position",assignments:"assignments","staff-assignments":"assignments",history:"history","staff-history":"history",documents:"documents","staff-documents":"documents"};
+      const next:Record<string,Tab>={overview:"overview",profile:"overview","staff-profile":"overview",position:"position","staff-position":"position",assignments:"assignments","staff-assignments":"assignments",attendance:"attendance",timetable:"timetable",salary:"salary",leaves:"leaves",activity:"activity",history:"history","staff-history":"history",documents:"documents","staff-documents":"documents"};
       if(next[hash])setTab(next[hash]);
     };
     void Promise.resolve().then(syncHash);
@@ -105,7 +141,7 @@ export function StaffDetailWorkspace({staffId}:{staffId:string}){
     const result=await response.json() as {url:string};window.open(result.url,"_blank","noopener,noreferrer");
   }
   async function remove(fileId:string){
-    if(!canManage||!window.confirm("Remove this document from the staff record?"))return;
+    if(!canManage||!await confirmAction({title:"Delete staff document?",message:"This document will be permanently removed from the staff record. This cannot be undone.",confirmLabel:"Delete document",confirmText:"DELETE"}))return;
     const response=await fetch(`/api/backend/documents/${fileId}`,{method:"DELETE"});
     if(response.ok){setRevision(value=>value+1);notify({title:"Document removed",message:"The attachment was removed from this staff record."});}
     else notify({tone:"error",title:"Document not removed",message:"Check your permissions and try again."});
@@ -126,7 +162,7 @@ export function StaffDetailWorkspace({staffId}:{staffId:string}){
       <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-center gap-5">
           <div className="relative grid size-20 shrink-0 place-items-center overflow-hidden rounded-full border-4 border-[var(--tenant-primary-soft,#e7f2eb)] bg-slate-100 text-2xl font-black text-[var(--tenant-primary,#28654a)] sm:size-24 sm:text-3xl" aria-hidden="true">{photoUrl?<img src={photoUrl} alt="" className="size-full object-cover"/>:initials}</div>
-          <div className="min-w-0"><p className="text-[10px] font-black uppercase tracking-[.2em] text-slate-500">Staff profile · {categories[staff.category]||"Team member"}</p><h1 className="mt-1 break-words text-2xl font-black tracking-[-.03em] text-slate-950 sm:text-3xl">{name}</h1><span className="mt-2 inline-flex rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">{positionName||"Position not assigned"}</span><div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600"><span className="rounded-full bg-[var(--tenant-primary-soft,#e7f2eb)] px-3 py-1.5 font-bold text-[var(--tenant-primary,#28654a)]">ID: {staff.staffNumber}</span><span><span className="text-slate-400">Qualification</span> <strong className="text-slate-800">{qualification?.name||"Not added"}</strong></span><span><span className="text-slate-400">Salary</span> <strong className="text-slate-800">₦ —</strong> <span className="text-slate-400">Payroll coming later</span></span></div></div>
+          <div className="min-w-0"><p className="text-[10px] font-black uppercase tracking-[.2em] text-slate-500">Staff profile · {categories[staff.category]||"Team member"}</p><h1 className="mt-1 break-words text-2xl font-black tracking-[-.03em] text-slate-950 sm:text-3xl">{name}</h1><div className="mt-2 flex flex-wrap gap-1.5"><span className="inline-flex rounded-full border border-[#FFDE00] bg-[#FFDE00] px-3 py-1 text-xs font-bold text-black">{positionName||"Position not assigned"}</span>{additionalPositions.map(item=><span key={item.positionId} className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-[10px] font-bold text-sky-800">{item.name}</span>)}</div><div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600"><span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--tenant-primary-soft,#e7f2eb)] px-3 py-1.5 font-bold text-[var(--tenant-primary,#28654a)]"><ProfileIcon kind="id"/>ID: {staff.staffNumber}</span><span className="inline-flex items-center gap-1.5"><ProfileIcon kind="cap"/><span className="text-slate-500">Qualification</span> <strong className="text-slate-800">{qualification?.name||"Not added"}</strong></span><span className="inline-flex items-center gap-1.5"><ProfileIcon kind="wallet"/><span className="text-slate-500">Salary</span> <strong className="text-slate-800">₦ —</strong> <span className="text-slate-400">Payroll coming later</span></span></div></div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2"><span className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700"><span className={`size-2 rounded-full ${staff.status===0?"bg-emerald-500":"bg-amber-500"}`}/>{statuses[staff.status]||"Unknown status"}</span>{canManage&&<Link href={`/portal/staff/${staffId}/edit`} className="tenant-primary-bg rounded-xl px-4 py-2.5 text-xs font-bold text-white transition hover:brightness-110">Edit staff record</Link>}</div>
       </div>
@@ -143,6 +179,7 @@ export function StaffDetailWorkspace({staffId}:{staffId:string}){
     </div>}
     {tab==="position"&&<div id="panel-position" role="tabpanel" aria-labelledby="tab-position"><StaffAssignmentsPanel key={`${revision}-position`} staffId={staffId} view="position" onChanged={()=>setRevision(value=>value+1)}/></div>}
     {tab==="assignments"&&<div id="panel-assignments" role="tabpanel" aria-labelledby="tab-assignments"><StaffAssignmentsPanel key={`${revision}-assignments`} staffId={staffId} view="assignments"/></div>}
+    {plannedTabs.filter(item=>item.id===tab).map(item=><div key={item.id} id={`panel-${item.id}`} role="tabpanel" aria-labelledby={`tab-${item.id}`}><PlannedStaffPanel title={item.title} description={item.description}/></div>)}
     {tab==="history"&&<div id="panel-history" role="tabpanel" aria-labelledby="tab-history"><StaffRecordSections staffId={staffId} onChanged={()=>setRevision(value=>value+1)}/></div>}
     {tab==="documents"&&<div id="panel-documents" role="tabpanel" aria-labelledby="tab-documents">
     <section id="staff-documents" className="scroll-mt-8 rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-7"><SectionHeading eyebrow="Files" title="Documents and evidence" description="Access and manage files attached to this staff profile."/>
@@ -153,8 +190,10 @@ export function StaffDetailWorkspace({staffId}:{staffId:string}){
   </main>;
 }
 
-function SummaryCard({label,value,detail}:{label:string;value:string;detail:string}){return <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm"><p className="text-[10px] font-black uppercase tracking-[.15em] text-slate-500">{label}</p><p className="mt-2 text-lg font-black text-slate-950">{value}</p><p className="mt-0.5 text-xs text-slate-500">{detail}</p></div>}
+function SummaryCard({label,value,detail}:{label:string;value:string;detail:string}){const kind:ProfileIconKind=label==="Employment"?"briefcase":label==="Documents"?"file":"person";return <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm"><div className="flex items-center gap-2.5"><span className="grid size-9 place-items-center rounded-xl bg-[var(--tenant-primary-soft,#e7f2eb)] text-[var(--tenant-primary,#28654a)]"><ProfileIcon kind={kind}/></span><p className="text-[10px] font-black uppercase tracking-[.15em] text-slate-500">{label}</p></div><p className="mt-3 text-lg font-black text-slate-950">{value}</p><p className="mt-0.5 text-xs text-slate-500">{detail}</p></div>}
+function PlannedStaffPanel({title,description}:{title:string;description:string}){return <section className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8"><div className="flex flex-wrap items-center gap-3"><h2 className="text-xl font-black text-slate-950">{title}</h2><span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-600">Coming later</span></div><p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{description}</p></section>}
 function SectionHeading({eyebrow,title,description}:{eyebrow:string;title:string;description:string}){return <div><p className="text-[10px] font-black uppercase tracking-[.18em] tenant-primary-text">{eyebrow}</p><h2 className="mt-1 text-xl font-black tracking-tight text-slate-950 sm:text-2xl">{title}</h2><p className="mt-1 text-sm text-slate-500">{description}</p></div>}
-function Detail({label,value,href}:{label:string;value:string|number|null|undefined;href?:string}){const text=value===null||value===undefined||value===""?"Not provided":String(value);return <div className="border-b border-slate-100 py-3"><p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</p><p className={`mt-1 break-words text-sm font-semibold ${text==="Not provided"?"font-normal text-slate-400":"text-slate-900"}`}>{href&&text!=="Not provided"?<a href={href} className="tenant-primary-text hover:underline">{text}</a>:text}</p></div>}
+function Detail({label,value,href}:{label:string;value:string|number|null|undefined;href?:string}){const text=value===null||value===undefined||value===""?"Not provided":String(value);return <div className="flex min-w-0 gap-3 border-b border-slate-100 py-3.5"><span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl bg-slate-50 text-[var(--tenant-primary,#28654a)]"><ProfileIcon kind={detailIcons[label]??"note"}/></span><div className="min-w-0"><p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</p><p className={`mt-1 break-words text-sm font-semibold ${text==="Not provided"?"font-normal text-slate-400":"text-slate-900"}`}>{href&&text!=="Not provided"?<a href={href} className="tenant-primary-text hover:underline">{text}</a>:text}</p></div></div>}
+function ProfileIcon({kind}:{kind:ProfileIconKind}){return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="size-4" aria-hidden="true"><path d={iconPaths[kind]}/></svg>}
 function date(value:string|null|undefined){if(!value)return null;const parsed=new Date(value);return Number.isNaN(parsed.getTime())?value:parsed.toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"});}
 async function problem(response:Response,fallback:string){try{const body=await response.json() as {detail?:string;message?:string;title?:string};return body.detail??body.message??body.title??fallback;}catch{return fallback;}}

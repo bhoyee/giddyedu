@@ -57,6 +57,25 @@ public sealed class StaffProfile : ITenantOwned
     private static string? Optional(string? value, int max) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length > max ? throw new ArgumentException($"Value must not exceed {max} characters.") : value.Trim();
 }
 
+public sealed class StaffAdditionalPosition : ITenantOwned
+{
+    private StaffAdditionalPosition() { }
+    public StaffAdditionalPosition(Guid tenantId, Guid staffId, Guid positionId, DateTimeOffset assignedAtUtc)
+    {
+        if (tenantId == Guid.Empty || staffId == Guid.Empty || positionId == Guid.Empty)
+            throw new ArgumentException("Tenant, staff, and position identifiers are required.");
+        TenantId = tenantId;
+        StaffId = staffId;
+        PositionId = positionId;
+        AssignedAtUtc = assignedAtUtc;
+    }
+
+    public Guid TenantId { get; private set; }
+    public Guid StaffId { get; private set; }
+    public Guid PositionId { get; private set; }
+    public DateTimeOffset AssignedAtUtc { get; private set; }
+}
+
 public sealed class StaffSensitiveRecord : ITenantOwned
 {
     private StaffSensitiveRecord() { }

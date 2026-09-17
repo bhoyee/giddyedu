@@ -22,6 +22,7 @@ public sealed record StaffSensitiveInput(string? Address, string? NextOfKinName,
     string? LocalGovernment = null, string? City = null, string? Genotype = null, string? BloodGroup = null, decimal? WeightKg = null, decimal? HeightCm = null,
     string? Disability = null, string? Skills = null, string? Achievements = null, string? Website = null, string? OfficeAddress = null, string? SocialProfilesJson = null);
 public sealed record PositionInfo(Guid Id, string Name, string Code, StaffCategory Category, string CategoryName, bool IsCustom, bool IsActive);
+public sealed record StaffPositionInfo(Guid PositionId, string Name, StaffCategory Category, bool IsPrimary);
 public sealed record StaffInfo(Guid Id, Guid? UserId, string StaffNumber, string FirstName, string LastName, StaffCategory Category,
     StaffStatus Status, Guid CampusId, Guid? DepartmentId, Guid? PositionId, string? WorkEmail, string? Phone, DateOnly HireDate, DateOnly? ExitDate,
     DateTimeOffset CreatedAtUtc, string? PositionName = null, string? MiddleInitial = null, string? PhotoUrl = null);
@@ -48,6 +49,10 @@ public interface IStaffService
     Task DeletePositionAsync(Guid actor, Guid positionId, CancellationToken ct = default);
     Task<PageResult<StaffInfo>> ListAsync(Guid actor, int page, int pageSize, string? search, StaffStatus? status, StaffCategory? category = null, string? sort = null, CancellationToken ct = default);
     Task<StaffInfo> GetAsync(Guid actor, Guid id, CancellationToken ct = default);
+    Task<IReadOnlyList<StaffPositionInfo>> ListStaffPositionsAsync(Guid actor, Guid staffId, CancellationToken ct = default);
+    Task AddStaffPositionAsync(Guid actor, Guid staffId, Guid positionId, CancellationToken ct = default);
+    Task RemoveStaffPositionAsync(Guid actor, Guid staffId, Guid positionId, CancellationToken ct = default);
+    Task SetPrimaryStaffPositionAsync(Guid actor, Guid staffId, Guid positionId, CancellationToken ct = default);
     Task<StaffRoleAccessInfo?> GetRoleAccessAsync(Guid actor, Guid id, CancellationToken ct = default);
     Task<string> ExportSelectedAsync(Guid actor, StaffExportInput input, CancellationToken ct = default);
     Task<Guid> CreateAsync(Guid actor, StaffInput input, CancellationToken ct = default);
@@ -107,7 +112,7 @@ public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IF
         var position = await db.Positions.SingleOrDefaultAsync(x => x.Id == positionId, ct)
             ?? throw new KeyNotFoundException("Position was not found.");
         if (!position.IsCustom) throw new InvalidOperationException("Default positions cannot be deleted.");
-        if (await db.StaffProfiles.AnyAsync(x => x.PositionId == positionId, ct))
+        if (await db.StaffProfiles.AnyAsync(x => x.PositionId == positionId, ct) || await db.StaffAdditionalPositions.AnyAsync(x => x.PositionId == positionId, ct))
             throw new InvalidOperationException("This position is assigned to staff and cannot be deleted. Reassign those staff members first.");
         db.Positions.Remove(position);
         await db.SaveChangesAsync(ct);
@@ -152,6 +157,62 @@ public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IF
     public async Task<StaffInfo> GetAsync(Guid actor, Guid id, CancellationToken ct = default)
     { await DemandAsync(actor, Permissions.StaffView, ct); RequireTenant(); var query = db.StaffProfiles.AsNoTracking().Where(x => x.Id == id); if (!await permissions.HasPermissionAsync(actor, Permissions.StaffManage, ct)) query = query.Where(x => x.UserId == actor); return await query.Select(Project()).SingleOrDefaultAsync(ct) ?? throw new KeyNotFoundException("Staff member was not found."); }
 
+    public async Task<IReadOnlyList<StaffPositionInfo>> ListStaffPositionsAsync(Guid actor, Guid staffId, CancellationToken ct = default)
+    {
+        var staff = await GetAsync(actor, staffId, ct);
+        var additional = await (from assignment in db.StaffAdditionalPositions.AsNoTracking()
+                                join position in db.Positions.AsNoTracking() on assignment.PositionId equals position.Id
+                                where assignment.StaffId == staffId
+                                orderby position.Category, position.Name
+                                select new StaffPositionInfo(position.Id, position.Name, position.Category, false)).ToListAsync(ct);
+        if (staff.PositionId.HasValue)
+        {
+            var primary = await db.Positions.AsNoTracking().Where(x => x.Id == staff.PositionId.Value)
+                .Select(x => new StaffPositionInfo(x.Id, x.Name, x.Category, true)).SingleAsync(ct);
+            additional.Insert(0, primary);
+        }
+        return additional;
+    }
+
+    public async Task AddStaffPositionAsync(Guid actor, Guid staffId, Guid positionId, CancellationToken ct = default)
+    {
+        await ManageAsync(actor, ct);
+        var staff = await FindAsync(staffId, ct);
+        if (staff.PositionId == positionId || await db.StaffAdditionalPositions.AnyAsync(x => x.StaffId == staffId && x.PositionId == positionId, ct))
+            throw new InvalidOperationException("This position is already assigned to the staff member.");
+        if (!await db.Positions.AnyAsync(x => x.Id == positionId && x.IsActive, ct))
+            throw new InvalidOperationException("Choose an active position in this school.");
+        db.StaffAdditionalPositions.Add(new StaffAdditionalPosition(RequireTenant(), staffId, positionId, clock.UtcNow));
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task RemoveStaffPositionAsync(Guid actor, Guid staffId, Guid positionId, CancellationToken ct = default)
+    {
+        await ManageAsync(actor, ct);
+        await FindAsync(staffId, ct);
+        var assignment = await db.StaffAdditionalPositions.SingleOrDefaultAsync(x => x.StaffId == staffId && x.PositionId == positionId, ct)
+            ?? throw new KeyNotFoundException("Additional position was not found. Change the primary position before removing it.");
+        if (await HasTeachingAssignmentsAsync(staffId, ct) && await IsLastTeachingPositionAsync(staffId, positionId, ct))
+            throw new InvalidOperationException("Remove teaching assignments before removing the last teaching position.");
+        db.StaffAdditionalPositions.Remove(assignment);
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task SetPrimaryStaffPositionAsync(Guid actor, Guid staffId, Guid positionId, CancellationToken ct = default)
+    {
+        await ManageAsync(actor, ct);
+        var staff = await FindAsync(staffId, ct);
+        var position = await db.Positions.SingleOrDefaultAsync(x => x.Id == positionId && x.IsActive, ct)
+            ?? throw new InvalidOperationException("Choose an active position in this school.");
+        if (staff.PositionId == positionId) return;
+        var existing = await db.StaffAdditionalPositions.SingleOrDefaultAsync(x => x.StaffId == staffId && x.PositionId == positionId, ct);
+        if (existing is not null) db.StaffAdditionalPositions.Remove(existing);
+        if (staff.PositionId.HasValue)
+            db.StaffAdditionalPositions.Add(new StaffAdditionalPosition(RequireTenant(), staffId, staff.PositionId.Value, clock.UtcNow));
+        staff.Update(staff.StaffNumber, staff.FirstName, staff.LastName, position.Category, staff.CampusId, staff.DepartmentId, positionId, staff.WorkEmail, staff.Phone, staff.HireDate, clock.UtcNow);
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task<StaffRoleAccessInfo?> GetRoleAccessAsync(Guid actor, Guid id, CancellationToken ct = default)
     {
         await ManageAsync(actor, ct);
@@ -185,7 +246,19 @@ public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IF
     { await ManageAsync(actor, ct); var campusId = await ResolveCampusAsync(input.CampusId, null, ct); await ValidateReferencesAsync(input, campusId, ct); ValidateContact(input); await EnsureUniqueContactAsync(input.Email!, input.Phone!, null, ct); var id = Guid.NewGuid(); var staffNumber = await GenerateStaffNumberAsync(ct); var staff = new StaffProfile(id, RequireTenant(), staffNumber, input.FirstName, input.LastName, input.Category, campusId, input.DepartmentId, input.PositionId, input.Email, input.Phone, input.HireDate, clock.UtcNow); staff.SetInitialStatus(input.Status, clock.UtcNow); db.StaffProfiles.Add(staff); await db.SaveChangesAsync(ct); return id; }
 
     public async Task UpdateAsync(Guid actor, Guid id, StaffInput input, CancellationToken ct = default)
-    { await ManageAsync(actor, ct); var staff = await FindAsync(id, ct); var campusId = await ResolveCampusAsync(input.CampusId, staff.CampusId, ct); await ValidateReferencesAsync(input, campusId, ct); ValidateContact(input); await EnsureUniqueContactAsync(input.Email!, input.Phone!, id, ct); staff.Update(staff.StaffNumber, input.FirstName, input.LastName, input.Category, campusId, input.DepartmentId, input.PositionId, input.Email, input.Phone, input.HireDate, clock.UtcNow); await db.SaveChangesAsync(ct); }
+    {
+        await ManageAsync(actor, ct); var staff = await FindAsync(id, ct); var campusId = await ResolveCampusAsync(input.CampusId, staff.CampusId, ct);
+        await ValidateReferencesAsync(input, campusId, ct); ValidateContact(input); await EnsureUniqueContactAsync(input.Email!, input.Phone!, id, ct);
+        if (input.PositionId.HasValue && staff.PositionId != input.PositionId)
+        {
+            var promoted = await db.StaffAdditionalPositions.SingleOrDefaultAsync(x => x.StaffId == id && x.PositionId == input.PositionId, ct);
+            if (promoted is not null) db.StaffAdditionalPositions.Remove(promoted);
+            if (staff.PositionId.HasValue)
+                db.StaffAdditionalPositions.Add(new StaffAdditionalPosition(RequireTenant(), id, staff.PositionId.Value, clock.UtcNow));
+        }
+        staff.Update(staff.StaffNumber, input.FirstName, input.LastName, input.Category, campusId, input.DepartmentId, input.PositionId, input.Email, input.Phone, input.HireDate, clock.UtcNow);
+        await db.SaveChangesAsync(ct);
+    }
 
     public async Task SetStatusAsync(Guid actor, Guid id, StaffStatusInput input, CancellationToken ct = default)
     {
@@ -239,7 +312,9 @@ public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IF
     public async Task<Guid> CreateTeachingAssignmentAsync(Guid actor, TeachingAssignmentInput input, CancellationToken ct = default)
     {
         await ManageAsync(actor, ct);
-        if (!await db.StaffProfiles.AnyAsync(x => x.Id == input.StaffId && x.Category == StaffCategory.Teaching && x.Status == StaffStatus.Active, ct)) throw new InvalidOperationException("The assigned staff member must be active teaching staff in the current tenant.");
+        var eligible = await db.StaffProfiles.AnyAsync(x => x.Id == input.StaffId && x.Status == StaffStatus.Active &&
+            (x.Category == StaffCategory.Teaching || db.StaffAdditionalPositions.Any(a => a.StaffId == x.Id && db.Positions.Any(p => p.Id == a.PositionId && p.Category == StaffCategory.Teaching))), ct);
+        if (!eligible) throw new InvalidOperationException("The staff member must be active and have a teaching position before receiving a class or subject assignment.");
         if (!await db.ClassSections.AnyAsync(x => x.Id == input.ClassSectionId && x.IsActive, ct)) throw new InvalidOperationException("The class section must belong to the current tenant and be active.");
         if (input.Role == TeachingAssignmentRole.SubjectTeacher && (!input.SubjectId.HasValue || !await db.ClassSubjects.AnyAsync(x => x.ClassSectionId == input.ClassSectionId && x.SubjectId == input.SubjectId, ct))) throw new InvalidOperationException("The subject must already be assigned to the class section.");
         var id = Guid.NewGuid(); db.TeachingAssignments.Add(new TeachingAssignment(id, RequireTenant(), input.StaffId, input.ClassSectionId, input.SubjectId, input.Role, clock.UtcNow)); await db.SaveChangesAsync(ct); return id;
@@ -247,6 +322,17 @@ public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IF
 
     public async Task DeleteTeachingAssignmentAsync(Guid actor, Guid assignmentId, CancellationToken ct = default)
     { await ManageAsync(actor, ct); var assignment = await db.TeachingAssignments.SingleOrDefaultAsync(x => x.Id == assignmentId, ct) ?? throw new KeyNotFoundException("Teaching assignment was not found."); db.TeachingAssignments.Remove(assignment); await db.SaveChangesAsync(ct); }
+
+    private Task<bool> HasTeachingAssignmentsAsync(Guid staffId, CancellationToken ct) =>
+        db.TeachingAssignments.AnyAsync(x => x.StaffId == staffId, ct);
+
+    private async Task<bool> IsLastTeachingPositionAsync(Guid staffId, Guid removingPositionId, CancellationToken ct)
+    {
+        var staff = await FindAsync(staffId, ct);
+        if (staff.Category == StaffCategory.Teaching) return false;
+        return !await db.StaffAdditionalPositions.AnyAsync(x => x.StaffId == staffId && x.PositionId != removingPositionId &&
+            db.Positions.Any(p => p.Id == x.PositionId && p.Category == StaffCategory.Teaching), ct);
+    }
 
     private async Task ValidateReferencesAsync(StaffInput input, Guid campusId, CancellationToken ct)
     {

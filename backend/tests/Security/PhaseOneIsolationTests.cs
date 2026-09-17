@@ -243,6 +243,53 @@ public sealed class PhaseOneIsolationTests
     }
 
     [Fact]
+    public async Task AdditionalPositions_AreTenantScopedAndCannotBeDuplicated()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Context.Set(fixture.TenantA, null);
+        var service = fixture.Staff();
+        var primary = await service.CreatePositionAsync(Guid.NewGuid(), new("ICT Specialist", StaffCategory.Administrative));
+        var teaching = await service.CreatePositionAsync(Guid.NewGuid(), new("Computer Instructor", StaffCategory.Teaching));
+        var staffId = await service.CreateAsync(Guid.NewGuid(), new(null, "Ada", "Okafor", StaffCategory.Administrative, fixture.CampusA, null, primary, "ada.positions@example.com", "09096735003", new(2026, 9, 1)));
+
+        await service.AddStaffPositionAsync(Guid.NewGuid(), staffId, teaching);
+        Assert.Equal(2, (await service.ListStaffPositionsAsync(Guid.NewGuid(), staffId)).Count);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.AddStaffPositionAsync(Guid.NewGuid(), staffId, teaching));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeletePositionAsync(Guid.NewGuid(), teaching));
+        await service.SetPrimaryStaffPositionAsync(Guid.NewGuid(), staffId, teaching);
+        Assert.Equal(StaffCategory.Teaching, (await service.GetAsync(Guid.NewGuid(), staffId)).Category);
+        var positions = await service.ListStaffPositionsAsync(Guid.NewGuid(), staffId);
+        Assert.Contains(positions, item => item.PositionId == teaching && item.IsPrimary);
+        Assert.Contains(positions, item => item.PositionId == primary && !item.IsPrimary);
+
+        fixture.Context.Set(fixture.TenantB, null);
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.ListStaffPositionsAsync(Guid.NewGuid(), staffId));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.AddStaffPositionAsync(Guid.NewGuid(), staffId, teaching));
+    }
+
+    [Fact]
+    public async Task AdministrativeStaff_NeedsTeachingPositionForTeachingAssignment()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
+        var staffService = fixture.Staff();
+        var primary = await staffService.CreatePositionAsync(Guid.NewGuid(), new("ICT Specialist", StaffCategory.Administrative));
+        var teaching = await staffService.CreatePositionAsync(Guid.NewGuid(), new("Computer Instructor", StaffCategory.Teaching));
+        var staffId = await staffService.CreateAsync(Guid.NewGuid(), new(null, "Ada", "Okafor", StaffCategory.Administrative, fixture.CampusA, null, primary, "ada.teacher@example.com", "09096735004", new(2026, 9, 1)));
+        var academics = fixture.Academics();
+        var yearId = await academics.CreateAcademicYearAsync(Guid.NewGuid(), new("2026/2027", new(2026, 9, 1), new(2027, 7, 31)));
+        await academics.ActivateAcademicYearAsync(Guid.NewGuid(), yearId);
+        var stageId = await academics.CreateEducationStageAsync(Guid.NewGuid(), new("Junior Secondary", "JSS", 1));
+        var levelId = await academics.CreateClassLevelAsync(Guid.NewGuid(), new(stageId, "JSS 1", "JSS1", 1));
+        var sectionId = await academics.CreateClassSectionAsync(Guid.NewGuid(), new(levelId, "A", 30));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => staffService.CreateTeachingAssignmentAsync(Guid.NewGuid(), new(staffId, sectionId, null, TeachingAssignmentRole.ClassTeacher)));
+        await staffService.AddStaffPositionAsync(Guid.NewGuid(), staffId, teaching);
+        await staffService.CreateTeachingAssignmentAsync(Guid.NewGuid(), new(staffId, sectionId, null, TeachingAssignmentRole.ClassTeacher));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => staffService.RemoveStaffPositionAsync(Guid.NewGuid(), staffId, teaching));
+        Assert.Single(await staffService.ListTeachingAssignmentsAsync(Guid.NewGuid(), sectionId));
+    }
+
+    [Fact]
     public async Task StaffView_IsRestrictedToTheActorsLinkedProfileWithoutManagePermission()
     {
         await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);

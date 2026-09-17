@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { notify } from "@/components/app-toast";
+import { confirmAction } from "@/components/confirm-action";
 
 type StaffRow = {
   id: string; userId: string | null; staffNumber: string; firstName: string; lastName: string;
@@ -105,7 +106,7 @@ export function StaffDirectoryTable({ version }: { version: number }) {
     window.location.href = `mailto:?bcc=${encodeURIComponent(emails.join(","))}`;
   }
   async function changeStatus(status: 0 | 1) {
-    if (!window.confirm(`${status === 1 ? "Suspend" : "Reactivate"} ${selectedRows.length} selected staff record${selectedRows.length === 1 ? "" : "s"}? This changes HR status; account access is managed separately.`)) return;
+    if (!await confirmAction({ title: `${status === 1 ? "Suspend" : "Reactivate"} selected staff?`, message: `This changes HR status for ${selectedRows.length} selected staff record${selectedRows.length === 1 ? "" : "s"}. Account access is managed separately.`, confirmLabel: status === 1 ? "Suspend staff" : "Reactivate staff" })) return;
     setBusy(true);
     let changed = 0;
     for (const row of selectedRows) {

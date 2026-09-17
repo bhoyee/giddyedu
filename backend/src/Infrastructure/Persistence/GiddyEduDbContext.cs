@@ -58,6 +58,7 @@ public sealed class GiddyEduDbContext(
     public DbSet<ClassSubject> ClassSubjects => Set<ClassSubject>();
     public DbSet<Position> Positions => Set<Position>();
     public DbSet<StaffProfile> StaffProfiles => Set<StaffProfile>();
+    public DbSet<StaffAdditionalPosition> StaffAdditionalPositions => Set<StaffAdditionalPosition>();
     public DbSet<StaffSensitiveRecord> StaffSensitiveRecords => Set<StaffSensitiveRecord>();
     public DbSet<StaffEmploymentRecord> StaffEmploymentRecords => Set<StaffEmploymentRecord>();
     public DbSet<StaffQualification> StaffQualifications => Set<StaffQualification>();
@@ -148,6 +149,7 @@ public sealed class GiddyEduDbContext(
         modelBuilder.Entity<ClassSubject>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<Position>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<StaffProfile>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
+        modelBuilder.Entity<StaffAdditionalPosition>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<StaffSensitiveRecord>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<StaffEmploymentRecord>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<StaffQualification>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
@@ -244,6 +246,7 @@ public sealed class GiddyEduDbContext(
 
     private static void ConfigureHr(ModelBuilder b)
     {
+        b.Entity<StaffAdditionalPosition>(e => { e.ToTable("StaffAdditionalPositions"); e.HasKey(x => new { x.TenantId, x.StaffId, x.PositionId }); e.HasIndex(x => new { x.TenantId, x.PositionId }); e.HasOne<StaffProfile>().WithMany().HasForeignKey(x => new { x.TenantId, x.StaffId }).HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Cascade); e.HasOne<Position>().WithMany().HasForeignKey(x => new { x.TenantId, x.PositionId }).HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict); });
         b.Entity<Position>(e => { e.ToTable("Positions"); e.HasKey(x => x.Id); e.HasAlternateKey(x => new { x.TenantId, x.Id }); e.Property(x => x.Name).HasMaxLength(150); e.Property(x => x.Code).HasMaxLength(50); e.HasIndex(x => new { x.TenantId, x.Code }).IsUnique(); e.HasIndex(x => new { x.TenantId, x.Category, x.Name }).IsUnique(); e.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict); });
         b.Entity<StaffProfile>(e =>
         {

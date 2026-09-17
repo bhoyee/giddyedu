@@ -24,6 +24,7 @@ public static class PhaseOneEndpoints
 {
     public sealed record CompleteDocumentUploadInput(string Checksum);
     public sealed record CompleteImportUploadInput(string Checksum);
+    public sealed record StaffPositionSelectionInput(Guid PositionId);
     public static IEndpointRouteBuilder MapPhaseOneEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/api/v1/plans", async (ISubscriptionManagementService service, CancellationToken ct) => Results.Ok(await service.ListPlansAsync(ct))).AllowAnonymous();
@@ -114,6 +115,10 @@ public static class PhaseOneEndpoints
         hr.MapGet("/staff", ListStaffAsync);
         hr.MapPost("/staff/export.csv", ExportSelectedStaffAsync).RequireRateLimiting("data-transfer");
         hr.MapGet("/staff/{staffId:guid}", GetStaffAsync);
+        hr.MapGet("/staff/{staffId:guid}/positions", ListStaffPositionsAsync);
+        hr.MapPost("/staff/{staffId:guid}/positions", AddStaffPositionAsync);
+        hr.MapPut("/staff/{staffId:guid}/positions/primary", SetPrimaryStaffPositionAsync);
+        hr.MapDelete("/staff/{staffId:guid}/positions/{positionId:guid}", RemoveStaffPositionAsync);
         hr.MapGet("/staff/{staffId:guid}/role-access", GetStaffRoleAccessAsync);
         hr.MapPost("/staff", CreateStaffAsync);
         hr.MapPut("/staff/{staffId:guid}", UpdateStaffAsync);
@@ -356,6 +361,13 @@ public static class PhaseOneEndpoints
     { var actor = UserId(principal); await service.DeletePositionAsync(actor, positionId, ct); await audit.WriteAsync(actor, "Position.Delete", "Position", positionId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
     private static async Task<IResult> ListStaffAsync(int page, int pageSize, string? search, StaffStatus? status, StaffCategory? category, string? sort, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListAsync(UserId(principal), page, pageSize == 0 ? 25 : pageSize, search, status, category, sort, ct));
     private static async Task<IResult> GetStaffAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.GetAsync(UserId(principal), staffId, ct));
+    private static async Task<IResult> ListStaffPositionsAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListStaffPositionsAsync(UserId(principal), staffId, ct));
+    private static async Task<IResult> AddStaffPositionAsync(Guid staffId, StaffPositionSelectionInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.AddStaffPositionAsync(actor, staffId, input.PositionId, ct); await audit.WriteAsync(actor, "Staff.PositionAdd", "StaffProfile", staffId.ToString(), "Succeeded", JsonSerializer.Serialize(new { input.PositionId }), ct); return Results.NoContent(); }
+    private static async Task<IResult> SetPrimaryStaffPositionAsync(Guid staffId, StaffPositionSelectionInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.SetPrimaryStaffPositionAsync(actor, staffId, input.PositionId, ct); await audit.WriteAsync(actor, "Staff.PositionMakePrimary", "StaffProfile", staffId.ToString(), "Succeeded", JsonSerializer.Serialize(new { input.PositionId }), ct); return Results.NoContent(); }
+    private static async Task<IResult> RemoveStaffPositionAsync(Guid staffId, Guid positionId, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
+    { var actor = UserId(principal); await service.RemoveStaffPositionAsync(actor, staffId, positionId, ct); await audit.WriteAsync(actor, "Staff.PositionRemove", "StaffProfile", staffId.ToString(), "Succeeded", JsonSerializer.Serialize(new { positionId }), ct); return Results.NoContent(); }
     private static async Task<IResult> GetStaffRoleAccessAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.GetRoleAccessAsync(UserId(principal), staffId, ct));
     private static async Task<IResult> ExportSelectedStaffAsync(StaffExportInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); var csv = await service.ExportSelectedAsync(actor, input, ct); await audit.WriteAsync(actor, "Staff.Export", "StaffProfile", "selected", "Succeeded", JsonSerializer.Serialize(new { Count = input.StaffIds?.Length ?? 0 }), ct); return Results.File(Encoding.UTF8.GetBytes($"\uFEFF{csv}"), "text/csv; charset=utf-8", "giddyedu-staff.csv"); }

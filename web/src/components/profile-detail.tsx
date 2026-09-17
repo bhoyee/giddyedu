@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import { confirmAction } from "@/components/confirm-action";
 
 type Value = string | number | boolean | null;
 interface Data { [key: string]: Value | Data | Data[] }
@@ -60,7 +61,7 @@ export function ProfileDetail({ id, kind, endpoint, backPath, title, fields, sen
   }
 
   async function remove(fileId: string) {
-    if (!canManage || !window.confirm("Remove this document?")) return;
+    if (!canManage || !await confirmAction({ title: "Delete document?", message: "This document will be permanently removed. This cannot be undone.", confirmLabel: "Delete document", confirmText: "DELETE" })) return;
     const response = await fetch(`/api/backend/documents/${fileId}`, { method: "DELETE" });
     if (!response.ok) { setError("Document could not be removed."); return; }
     setDocuments(current => current.filter(item => item.id !== fileId));
