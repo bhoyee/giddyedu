@@ -116,6 +116,24 @@ public sealed class PhaseOneDomainTests
     }
 
     [Fact]
+    public void StaffProfile_BinLifecycleTracksActorAndTimestamp()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var actor = Guid.NewGuid();
+        var staff = new StaffProfile(Guid.NewGuid(), Guid.NewGuid(), "BIN-1", "Ada", "Okafor", StaffCategory.Teaching,
+            Guid.NewGuid(), null, null, null, null, new DateOnly(2026, 9, 1), now);
+
+        staff.MoveToBin(actor, now.AddMinutes(1), "[]");
+        Assert.Equal(actor, staff.DeletedByUserId);
+        Assert.Equal(now.AddMinutes(1), staff.DeletedAtUtc);
+        Assert.Throws<InvalidOperationException>(() => staff.MoveToBin(actor, now.AddMinutes(2), "[]"));
+        staff.Restore(now.AddMinutes(3));
+        Assert.Null(staff.DeletedAtUtc);
+        Assert.Null(staff.DeletedByUserId);
+        Assert.Throws<InvalidOperationException>(() => staff.Restore(now.AddMinutes(4)));
+    }
+
+    [Fact]
     public void StaffProfile_NormalizesContactAndSpacingWithoutChangingNameCapitalization()
     {
         var staff = new StaffProfile(Guid.NewGuid(), Guid.NewGuid(), "stf-1", "  Mary   Ann  ", "  McDonald ", StaffCategory.Teaching,

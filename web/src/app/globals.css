@@ -29,6 +29,20 @@ button:disabled,
   cursor: not-allowed;
 }
 
+.staff-email-preview { overflow-wrap: anywhere; }
+.staff-email-preview > * + * { margin-top: 0.75rem; }
+.staff-email-preview h1 { font-size: 1.5rem; font-weight: 700; }
+.staff-email-preview h2 { font-size: 1.25rem; font-weight: 700; }
+.staff-email-preview ul { list-style: disc; padding-left: 1.5rem; }
+.staff-email-preview ol { list-style: decimal; padding-left: 1.5rem; }
+.staff-email-preview blockquote { border-left: 3px solid #94a3b8; padding-left: 1rem; color: #475569; }
+.staff-email-preview a { color: #155e75; text-decoration: underline; }
+.staff-email-preview table { width: 100%; border-collapse: collapse; }
+.staff-email-preview th, .staff-email-preview td { border: 1px solid #cbd5e1; padding: 0.5rem; }
+.staff-compose-editor .jodit-toolbar__box { overflow-x: auto; }
+.staff-compose-editor .jodit-toolbar-editor-collection { justify-content: flex-start; gap: 0; width: max-content; min-width: 100%; }
+.staff-compose-editor .jodit-ui-group { gap: 0; }
+
 /* Keep legacy portal modules aligned with the tenant's saved brand palette. */
 .tenant-theme {
   --tenant-primary-hover: color-mix(in srgb, var(--tenant-primary), #000 14%);

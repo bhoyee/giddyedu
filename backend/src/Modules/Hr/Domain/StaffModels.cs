@@ -35,6 +35,20 @@ public sealed class StaffProfile : ITenantOwned
     public StaffCategory Category { get; private set; } public StaffStatus Status { get; private set; } public Guid CampusId { get; private set; }
     public Guid? DepartmentId { get; private set; } public Guid? PositionId { get; private set; } public string? WorkEmail { get; private set; } public string? Phone { get; private set; }
     public DateOnly HireDate { get; private set; } public DateOnly? ExitDate { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; } public DateTimeOffset? UpdatedAtUtc { get; private set; }
+    public DateTimeOffset? DeletedAtUtc { get; private set; }
+    public Guid? DeletedByUserId { get; private set; }
+    public string? SuspendedRoleIdsJson { get; private set; }
+    public void MoveToBin(Guid actor, DateTimeOffset now, string? suspendedRoleIdsJson)
+    {
+        if (actor == Guid.Empty) throw new ArgumentException("An actor is required.", nameof(actor));
+        if (DeletedAtUtc.HasValue) throw new InvalidOperationException("Staff member is already in the bin.");
+        DeletedAtUtc = now; DeletedByUserId = actor; SuspendedRoleIdsJson = suspendedRoleIdsJson; UpdatedAtUtc = now;
+    }
+    public void Restore(DateTimeOffset now)
+    {
+        if (!DeletedAtUtc.HasValue) throw new InvalidOperationException("Staff member is not in the bin.");
+        DeletedAtUtc = null; DeletedByUserId = null; SuspendedRoleIdsJson = null; UpdatedAtUtc = now;
+    }
     public void Update(string staffNumber, string firstName, string lastName, StaffCategory category, Guid campusId, Guid? departmentId, Guid? positionId,
         string? workEmail, string? phone, DateOnly hireDate, DateTimeOffset now)
     {

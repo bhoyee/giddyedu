@@ -148,7 +148,9 @@ public sealed class GiddyEduDbContext(
         modelBuilder.Entity<Subject>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<ClassSubject>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<Position>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
-        modelBuilder.Entity<StaffProfile>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
+        modelBuilder.Entity<StaffProfile>()
+            .HasQueryFilter("TenantFilter", x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId)
+            .HasQueryFilter("BinFilter", x => x.DeletedAtUtc == null);
         modelBuilder.Entity<StaffAdditionalPosition>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<StaffSensitiveRecord>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<StaffEmploymentRecord>().HasQueryFilter(x => tenantContext.TenantId.HasValue && x.TenantId == tenantContext.TenantId);
@@ -252,6 +254,8 @@ public sealed class GiddyEduDbContext(
         {
             e.ToTable("StaffProfiles", t => t.HasCheckConstraint("CK_StaffProfiles_ExitDate", "\"ExitDate\" IS NULL OR \"ExitDate\" >= \"HireDate\"")); e.HasKey(x => x.Id); e.HasAlternateKey(x => new { x.TenantId, x.Id });
             e.Property(x => x.StaffNumber).HasMaxLength(50); e.Property(x => x.FirstName).HasMaxLength(100); e.Property(x => x.LastName).HasMaxLength(100); e.Property(x => x.WorkEmail).HasMaxLength(320); e.Property(x => x.Phone).HasMaxLength(30);
+            e.Property(x => x.SuspendedRoleIdsJson).HasMaxLength(4000);
+            e.HasIndex(x => new { x.TenantId, x.DeletedAtUtc });
             e.HasIndex(x => new { x.TenantId, x.StaffNumber }).IsUnique(); e.HasIndex(x => new { x.TenantId, x.UserId }).IsUnique().HasFilter("\"UserId\" IS NOT NULL"); e.HasIndex(x => new { x.TenantId, x.WorkEmail }).IsUnique().HasFilter("\"WorkEmail\" IS NOT NULL"); e.HasIndex(x => new { x.TenantId, x.Phone }).IsUnique().HasFilter("\"Phone\" IS NOT NULL");
             e.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Campus>().WithMany().HasForeignKey(x => new { x.TenantId, x.CampusId }).HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);

@@ -1,5 +1,6 @@
 using GiddyEdu.BuildingBlocks.Api;
 using System.Text;
+using System.Text.Json;
 using GiddyEdu.BuildingBlocks.Tenancy;
 using GiddyEdu.BuildingBlocks.Time;
 using GiddyEdu.Infrastructure.Authorization;
@@ -7,6 +8,8 @@ using GiddyEdu.Infrastructure.Persistence;
 using GiddyEdu.Infrastructure.Storage;
 using GiddyEdu.Modules.Hr.Domain;
 using GiddyEdu.Modules.Identity;
+using GiddyEdu.Modules.Identity.Domain;
+using GiddyEdu.Modules.Platform.Domain;
 using GiddyEdu.Modules.Subscriptions;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,7 +28,9 @@ public sealed record PositionInfo(Guid Id, string Name, string Code, StaffCatego
 public sealed record StaffPositionInfo(Guid PositionId, string Name, StaffCategory Category, bool IsPrimary);
 public sealed record StaffInfo(Guid Id, Guid? UserId, string StaffNumber, string FirstName, string LastName, StaffCategory Category,
     StaffStatus Status, Guid CampusId, Guid? DepartmentId, Guid? PositionId, string? WorkEmail, string? Phone, DateOnly HireDate, DateOnly? ExitDate,
-    DateTimeOffset CreatedAtUtc, string? PositionName = null, string? MiddleInitial = null, string? PhotoUrl = null);
+    DateTimeOffset CreatedAtUtc, string? PositionName = null, string? MiddleInitial = null, string? PhotoUrl = null, DateTimeOffset? DeletedAtUtc = null);
+public sealed record StaffAuditInfo(string Action, Guid? ActorUserId, DateTimeOffset OccurredAtUtc, string? ActorName = null);
+public sealed record StaffBinDetail(StaffInfo Staff, Guid? DeletedByUserId, IReadOnlyList<StaffAuditInfo> Activity, string? DeletedByName = null);
 public sealed record StaffSensitiveInfo(string? Address, string? NextOfKinName, string? NextOfKinPhone, string? Notes, string? Title, string? MiddleName, string? Gender,
     DateOnly? DateOfBirth, string? MaritalStatus, string? Religion, string? Country, string? State, string? LocalGovernment, string? City, string? Genotype,
     string? BloodGroup, decimal? WeightKg, decimal? HeightCm, string? Disability, string? Skills, string? Achievements, string? Website, string? OfficeAddress,
@@ -48,6 +53,12 @@ public interface IStaffService
     Task UpdatePositionAsync(Guid actor, Guid positionId, PositionInput input, CancellationToken ct = default);
     Task DeletePositionAsync(Guid actor, Guid positionId, CancellationToken ct = default);
     Task<PageResult<StaffInfo>> ListAsync(Guid actor, int page, int pageSize, string? search, StaffStatus? status, StaffCategory? category = null, string? sort = null, CancellationToken ct = default);
+    Task<PageResult<StaffInfo>> ListBinAsync(Guid actor, int page, int pageSize, CancellationToken ct = default);
+    Task<StaffBinDetail> GetBinDetailAsync(Guid actor, Guid id, CancellationToken ct = default);
+    Task<long> CountBinAsync(Guid actor, CancellationToken ct = default);
+    Task MoveToBinAsync(Guid actor, Guid id, CancellationToken ct = default);
+    Task RestoreAsync(Guid actor, Guid id, CancellationToken ct = default);
+    Task PermanentlyDeleteAsync(Guid actor, Guid id, CancellationToken ct = default);
     Task<StaffInfo> GetAsync(Guid actor, Guid id, CancellationToken ct = default);
     Task<IReadOnlyList<StaffPositionInfo>> ListStaffPositionsAsync(Guid actor, Guid staffId, CancellationToken ct = default);
     Task AddStaffPositionAsync(Guid actor, Guid staffId, Guid positionId, CancellationToken ct = default);
@@ -78,6 +89,151 @@ public interface IStaffService
 
 public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IFeatureAccessGuard access, IPermissionService permissions, IClock clock, IFileObjectStorage storage) : IStaffService
 {
+    private sealed record StaffAccessSnapshot(Guid[] RoleIds, bool MembershipWasActive);
+    private IQueryable<StaffProfile> Bin => db.StaffProfiles.IgnoreQueryFilters(["BinFilter"]).Where(x => x.DeletedAtUtc != null);
+
+    public async Task<long> CountBinAsync(Guid actor, CancellationToken ct = default)
+    {
+        await ManageAsync(actor, ct);
+        return await Bin.LongCountAsync(ct);
+    }
+
+    public async Task<PageResult<StaffInfo>> ListBinAsync(Guid actor, int page, int pageSize, CancellationToken ct = default)
+    {
+        await ManageAsync(actor, ct);
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        var query = Bin.AsNoTracking();
+        var total = await query.LongCountAsync(ct);
+        var items = await query.OrderByDescending(x => x.DeletedAtUtc).ThenBy(x => x.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize).Select(Project()).ToListAsync(ct);
+        var positionIds = items.Where(x => x.PositionId.HasValue).Select(x => x.PositionId!.Value).Distinct().ToArray();
+        var positions = await db.Positions.AsNoTracking().Where(x => positionIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.Name, ct);
+        items = items.Select(x => x with { PositionName = x.PositionId.HasValue && positions.TryGetValue(x.PositionId.Value, out var name) ? name : null }).ToList();
+        return new(items, page, pageSize, total);
+    }
+
+    public async Task<StaffBinDetail> GetBinDetailAsync(Guid actor, Guid id, CancellationToken ct = default)
+    {
+        await ManageAsync(actor, ct);
+        var staff = await Bin.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw new KeyNotFoundException("Staff member was not found in the bin.");
+        var positionName = staff.PositionId.HasValue ? await db.Positions.Where(x => x.Id == staff.PositionId.Value).Select(x => x.Name).SingleOrDefaultAsync(ct) : null;
+        var activity = await db.AuditRecords.AsNoTracking().Where(x => x.TargetType == "StaffProfile" && x.TargetId == id.ToString())
+            .OrderByDescending(x => x.OccurredAtUtc).Take(100)
+            .Select(x => new StaffAuditInfo(x.Action, x.ActorUserId, x.OccurredAtUtc)).ToListAsync(ct);
+        var actorIds = activity.Where(x => x.ActorUserId.HasValue).Select(x => x.ActorUserId!.Value)
+            .Concat(staff.DeletedByUserId.HasValue ? [staff.DeletedByUserId.Value] : []).Distinct().ToArray();
+        var actorNames = await db.Users.AsNoTracking().Where(x => actorIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.DisplayName, ct);
+        activity = activity.Select(x => x with
+        {
+            ActorName = x.ActorUserId.HasValue && actorNames.TryGetValue(x.ActorUserId.Value, out var name)
+                ? name : null
+        }).ToList();
+        var info = new StaffInfo(staff.Id, staff.UserId, staff.StaffNumber, staff.FirstName, staff.LastName, staff.Category, staff.Status,
+            staff.CampusId, staff.DepartmentId, staff.PositionId, staff.WorkEmail, staff.Phone, staff.HireDate, staff.ExitDate,
+            staff.CreatedAtUtc, positionName, null, null, staff.DeletedAtUtc);
+        return new(info, staff.DeletedByUserId, activity,
+            staff.DeletedByUserId.HasValue && actorNames.TryGetValue(staff.DeletedByUserId.Value, out var deletedByName)
+                ? deletedByName : null);
+    }
+
+    public async Task MoveToBinAsync(Guid actor, Guid id, CancellationToken ct = default)
+    {
+        await ManageAsync(actor, ct);
+        var staff = await FindAsync(id, ct);
+        if (staff.UserId == actor) throw new InvalidOperationException("You cannot move your own staff record to the bin.");
+        if (staff.UserId.HasValue && !await permissions.HasPermissionAsync(actor, Permissions.RolesManage, ct))
+            throw new UnauthorizedAccessException("Roles.Manage permission is required to suspend a linked staff account.");
+        Guid[] suspendedRoles = [];
+        var membershipWasActive = false;
+        if (staff.UserId.HasValue)
+        {
+            var membership = await db.TenantMemberships.SingleOrDefaultAsync(x => x.UserId == staff.UserId.Value, ct);
+            membershipWasActive = membership?.IsActive == true;
+            var assignments = await (from tenantMembership in db.TenantMemberships
+                                     join assignment in db.TenantMembershipRoles on tenantMembership.Id equals assignment.MembershipId
+                                     join role in db.TenantRoles on assignment.RoleId equals role.Id
+                                     where tenantMembership.UserId == staff.UserId.Value
+                                     select new { Assignment = assignment, RoleName = role.Name }).ToListAsync(ct);
+            var preservePersonRole = await db.Guardians.AnyAsync(x => x.UserId == staff.UserId.Value, ct)
+                || await db.Students.AnyAsync(x => x.UserId == staff.UserId.Value, ct);
+            var assignedRoleIds = assignments.Select(x => x.Assignment.RoleId).ToArray();
+            var grants = await (from grant in db.RolePermissions
+                                join permission in db.Permissions on grant.PermissionId equals permission.Id
+                                where assignedRoleIds.Contains(grant.RoleId)
+                                select new { grant.RoleId, permission.Name }).ToListAsync(ct);
+            var familyPermissions = new HashSet<string>([Permissions.StudentsView, Permissions.GuardiansView, Permissions.AcademicsView]);
+            if (preservePersonRole && assignments.Any(x => IsFamilyRole(x.RoleName) && grants.Any(grant => grant.RoleId == x.Assignment.RoleId && !familyPermissions.Contains(grant.Name))))
+                throw new InvalidOperationException("A family role also grants staff or administrative access. Separate those permissions before moving this staff member to the bin.");
+            var toRemove = assignments.Where(x => !preservePersonRole || !IsFamilyRole(x.RoleName) || grants.Any(grant => grant.RoleId == x.Assignment.RoleId && !familyPermissions.Contains(grant.Name)))
+                .Select(x => x.Assignment).ToArray();
+            suspendedRoles = toRemove.Select(x => x.RoleId).ToArray();
+            db.TenantMembershipRoles.RemoveRange(toRemove);
+            if (!preservePersonRole) membership?.Suspend();
+            foreach (var token in await db.RefreshTokens.Where(x => x.UserId == staff.UserId.Value && x.RevokedAtUtc == null).ToListAsync(ct))
+                token.Revoke(clock.UtcNow);
+        }
+        foreach (var invitation in await db.AccountInvitations.Where(x => x.TargetType == InvitationTargetType.Staff && x.TargetId == id && x.AcceptedAtUtc == null && x.RevokedAtUtc == null).ToListAsync(ct))
+            invitation.Revoke(clock.UtcNow);
+        staff.MoveToBin(actor, clock.UtcNow, JsonSerializer.Serialize(new StaffAccessSnapshot(suspendedRoles, membershipWasActive)));
+        AddLifecycleAudit(actor, "Staff.MoveToBin", id);
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task RestoreAsync(Guid actor, Guid id, CancellationToken ct = default)
+    {
+        await ManageAsync(actor, ct);
+        var staff = await Bin.SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw new KeyNotFoundException("Staff member was not found in the bin.");
+        if (staff.UserId.HasValue && !await permissions.HasPermissionAsync(actor, Permissions.RolesManage, ct))
+            throw new UnauthorizedAccessException("Roles.Manage permission is required to restore a linked staff account.");
+        if (staff.UserId.HasValue)
+        {
+            var membership = await db.TenantMemberships.SingleOrDefaultAsync(x => x.UserId == staff.UserId.Value, ct);
+            if (membership is null) throw new InvalidOperationException("The linked account no longer has a school membership.");
+            var snapshot = ReadAccessSnapshot(staff.SuspendedRoleIdsJson);
+            if (snapshot.MembershipWasActive) membership.Reactivate();
+            var validRoleIds = await db.TenantRoles.Where(x => snapshot.RoleIds.Contains(x.Id)).Select(x => x.Id).ToListAsync(ct);
+            var existingRoleIds = await db.TenantMembershipRoles.Where(x => x.MembershipId == membership.Id).Select(x => x.RoleId).ToListAsync(ct);
+            foreach (var roleId in validRoleIds.Except(existingRoleIds))
+                db.TenantMembershipRoles.Add(new TenantMembershipRole(RequireTenant(), membership.Id, roleId));
+        }
+        staff.Restore(clock.UtcNow);
+        AddLifecycleAudit(actor, "Staff.Restore", id);
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task PermanentlyDeleteAsync(Guid actor, Guid id, CancellationToken ct = default)
+    {
+        await ManageAsync(actor, ct);
+        var staff = await Bin.SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw new KeyNotFoundException("Staff member was not found in the bin.");
+        if (staff.UserId == actor) throw new InvalidOperationException("You cannot permanently delete your own staff record.");
+        var files = await db.StoredFiles.Where(x => x.EntityType == "StaffProfile" && x.EntityId == id).ToListAsync(ct);
+        foreach (var file in files) await storage.DeleteAsync(file.ObjectKey, ct);
+        db.StoredFiles.RemoveRange(files);
+        db.AccountInvitations.RemoveRange(await db.AccountInvitations.Where(x => x.TargetType == InvitationTargetType.Staff && x.TargetId == id).ToListAsync(ct));
+        db.CustomFieldValues.RemoveRange(await db.CustomFieldValues.Where(x => x.EntityType == "StaffProfile" && x.EntityId == id).ToListAsync(ct));
+        db.StaffProfiles.Remove(staff);
+        AddLifecycleAudit(actor, "Staff.PermanentDelete", id);
+        await db.SaveChangesAsync(ct);
+    }
+
+    private void AddLifecycleAudit(Guid actor, string action, Guid staffId) =>
+        db.AuditRecords.Add(new AuditRecord(Guid.NewGuid(), RequireTenant(), actor, action, "StaffProfile", staffId.ToString(), "Succeeded", clock.UtcNow, null));
+
+    private static bool IsFamilyRole(string name) =>
+        name.Contains("parent", StringComparison.OrdinalIgnoreCase) || name.Contains("guardian", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("student", StringComparison.OrdinalIgnoreCase) || name.Contains("learner", StringComparison.OrdinalIgnoreCase);
+
+    private static StaffAccessSnapshot ReadAccessSnapshot(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new([], false);
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.ValueKind == JsonValueKind.Array
+            ? new(JsonSerializer.Deserialize<Guid[]>(json) ?? [], false)
+            : JsonSerializer.Deserialize<StaffAccessSnapshot>(json) ?? new([], false);
+    }
+
     public async Task<IReadOnlyList<PositionInfo>> ListPositionsAsync(Guid actor, CancellationToken ct = default)
     { await DemandAsync(actor, Permissions.StaffView, ct); await EnsureDefaultPositionsAsync(ct); return await db.Positions.AsNoTracking().OrderBy(x => x.Category).ThenBy(x => x.Name).Select(x => new PositionInfo(x.Id, x.Name, x.Code, x.Category, x.Category == StaffCategory.Teaching ? "Teaching" : x.Category == StaffCategory.Administrative ? "Administrative" : "Non-teaching", x.IsCustom, x.IsActive)).ToListAsync(ct); }
 
@@ -419,5 +575,5 @@ public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IF
         if (safe.Length > 0 && "=+-@\t\r".Contains(safe[0])) safe = "'" + safe;
         return $"\"{safe.Replace("\"", "\"\"")}\"";
     }
-    private static System.Linq.Expressions.Expression<Func<StaffProfile, StaffInfo>> Project() => x => new StaffInfo(x.Id, x.UserId, x.StaffNumber, x.FirstName, x.LastName, x.Category, x.Status, x.CampusId, x.DepartmentId, x.PositionId, x.WorkEmail, x.Phone, x.HireDate, x.ExitDate, x.CreatedAtUtc, null, null);
+    private static System.Linq.Expressions.Expression<Func<StaffProfile, StaffInfo>> Project() => x => new StaffInfo(x.Id, x.UserId, x.StaffNumber, x.FirstName, x.LastName, x.Category, x.Status, x.CampusId, x.DepartmentId, x.PositionId, x.WorkEmail, x.Phone, x.HireDate, x.ExitDate, x.CreatedAtUtc, null, null, null, x.DeletedAtUtc);
 }

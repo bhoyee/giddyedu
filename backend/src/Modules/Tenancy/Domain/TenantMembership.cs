@@ -23,4 +23,6 @@ public sealed class TenantMembership : ITenantOwned
     public bool IsActive { get; private set; }
     public string? RoleAtSchool { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
+    public void Suspend() => IsActive = false;
+    public void Reactivate() => IsActive = true;
 }

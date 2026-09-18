@@ -12,6 +12,9 @@ export function StaffManagementWorkspace() {
   const [teachingTotal, setTeachingTotal] = useState<number | null>(null);
   const [nonTeachingTotal, setNonTeachingTotal] = useState<number | null>(null);
   const [directoryVersion, setDirectoryVersion] = useState(0);
+  const [binMode, setBinMode] = useState(false);
+  const [binCount, setBinCount] = useState(0);
+  const [canManageStaff, setCanManageStaff] = useState(false);
 
   useEffect(() => {
     void Promise.all(["", "&category=0", "&category=2"].map(async filter => {
@@ -31,9 +34,9 @@ export function StaffManagementWorkspace() {
     </header>
 
     <div className="rounded-[1.5rem] border border-[#dfe6e1] bg-white p-4 shadow-[0_12px_36px_rgba(28,53,42,.055)] sm:p-7">
-      <div className="mb-6 flex flex-col gap-4 border-b border-slate-100 pb-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[.16em] text-[#5f806f]">Staff directory</p><h2 className="mt-2 text-2xl font-black tracking-[-.03em] text-slate-950">Manage staff records</h2><p className="mt-2 max-w-lg text-sm leading-6 text-slate-500">Open a staff member for their complete record, send an account invitation, or attach verified documents.</p></div><StaffRegistrationWizard onCreated={()=>setDirectoryVersion(value=>value+1)}/></div>
+      <div className="mb-6 flex flex-col gap-4 border-b border-slate-100 pb-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[.16em] text-[#5f806f]">Staff directory</p><h2 className="mt-2 text-2xl font-black tracking-[-.03em] text-slate-950">Manage staff records</h2><p className="mt-2 max-w-lg text-sm leading-6 text-slate-500">Open a staff member for their complete record, send an account invitation, or attach verified documents.</p></div><div className="flex flex-wrap items-center gap-2">{canManageStaff && (binCount > 0 || binMode) && <button type="button" onClick={() => setBinMode(value => !value)} aria-pressed={binMode} className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">{binMode ? "← Active staff" : `Bin · ${binCount}`}</button>}<StaffRegistrationWizard onCreated={()=>setDirectoryVersion(value=>value+1)}/></div></div>
       <div className="space-y-5">
-        <StaffDirectoryTable version={directoryVersion}/>
+        <StaffDirectoryTable key={binMode ? "bin" : "active"} version={directoryVersion} binMode={binMode} onBinCountChange={setBinCount} onCanManageChange={setCanManageStaff}/>
         <ResourcePage embedded splitManagement hideRecords title="Staff" description="Manage authoritative staff profiles, positions, and teaching responsibilities." endpoint="hr/staff?page=1&pageSize=50" emptyMessage="No staff profiles have been created. Add the first member of your school team to begin." fields={[]} creates={[
           { endpoint:"hr/teaching-assignments", title:"Assign teaching responsibility", fields:[{name:"staffId",label:"Teaching staff",type:"select",optionsEndpoint:"hr/staff?page=1&pageSize=100",optionLabelKey:"staffNumber"},{name:"classSectionId",label:"Class section",type:"select",optionsEndpoint:"academics/structure",optionsCollectionKey:"classSections"},{name:"subjectId",label:"Subject (subject teachers only)",type:"select",required:false,optionsEndpoint:"academics/structure",optionsCollectionKey:"subjects"},{name:"role",label:"Responsibility",type:"select",numeric:true,options:[{value:"0",label:"Subject teacher"},{value:"1",label:"Class teacher"},{value:"2",label:"Form teacher"}]}] }
         ]} actions={[{ endpoint:"", title:"Open", href:"/portal/staff/{id}" },{ endpoint:"account-invitations", title:"Invite staff member", payload:{targetType:0}, itemIdField:"targetId" },{ endpoint:"documents/StaffProfile/{id}/uploads", title:"Upload document", documentUpload:true, fields:[{name:"category",label:"Category",type:"select",options:[{value:"identity",label:"Identity"},{value:"qualification",label:"Qualification"},{value:"contract",label:"Contract"},{value:"photo",label:"Photograph"},{value:"other",label:"Other"}]},{name:"file",label:"PDF, JPEG, or PNG (maximum 10 MB)",type:"file"}] }]} />

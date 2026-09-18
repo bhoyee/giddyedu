@@ -3,6 +3,7 @@ using GiddyEdu.Infrastructure.Persistence;
 using GiddyEdu.Modules.Tenancy.Domain;
 using GiddyEdu.Modules.Identity.Domain;
 using GiddyEdu.Modules.Platform.Domain;
+using GiddyEdu.Modules.Hr.Domain;
 using Microsoft.EntityFrameworkCore;
 
 namespace GiddyEdu.IntegrationTests;
@@ -48,6 +49,35 @@ public sealed class PostgresFoundationTests
         var visible = await db.Campuses.AsNoTracking().ToListAsync();
         Assert.Single(visible);
         Assert.Equal(tenantA, visible[0].TenantId);
+        await transaction.RollbackAsync();
+    }
+
+    [Fact]
+    public async Task PostgreSqlStaffBinFilter_PreservesTenantScopeAndAllowsPermanentRemoval()
+    {
+        var context = new TenantContextAccessor();
+        await using var db = CreateContext(context);
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        var tenantId = Guid.NewGuid(); var campusId = Guid.NewGuid(); var staffId = Guid.NewGuid(); var actor = Guid.NewGuid();
+        db.Tenants.Add(new Tenant(tenantId, "Staff bin test", $"staff-bin-{tenantId:N}", DateTimeOffset.UtcNow));
+        await db.SaveChangesAsync();
+        context.Set(tenantId, null);
+        db.Campuses.Add(new Campus(campusId, tenantId, "Main", "MAIN", DateTimeOffset.UtcNow));
+        var staff = new StaffProfile(staffId, tenantId, "BIN-TEST", "Ada", "Okafor", StaffCategory.Teaching, campusId, null, null, null, null, new(2026, 9, 1), DateTimeOffset.UtcNow);
+        db.StaffProfiles.Add(staff);
+        await db.SaveChangesAsync();
+        staff.MoveToBin(actor, DateTimeOffset.UtcNow, "[]");
+        await db.SaveChangesAsync(); db.ChangeTracker.Clear();
+
+        Assert.False(await db.StaffProfiles.AnyAsync(x => x.Id == staffId));
+        var binned = await db.StaffProfiles.IgnoreQueryFilters(["BinFilter"]).SingleAsync(x => x.Id == staffId);
+        Assert.Equal(actor, binned.DeletedByUserId);
+        context.Set(Guid.NewGuid(), null);
+        Assert.False(await db.StaffProfiles.IgnoreQueryFilters(["BinFilter"]).AnyAsync(x => x.Id == staffId));
+        context.Set(tenantId, null);
+        db.StaffProfiles.Remove(binned);
+        await db.SaveChangesAsync();
+        Assert.False(await db.StaffProfiles.IgnoreQueryFilters(["BinFilter"]).AnyAsync(x => x.Id == staffId));
         await transaction.RollbackAsync();
     }
 

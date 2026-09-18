@@ -9,6 +9,7 @@ using GiddyEdu.Modules.Academics.Domain;
 using GiddyEdu.Modules.Tenancy.Domain;
 using GiddyEdu.Modules.Hr.Domain;
 using GiddyEdu.Modules.Identity;
+using GiddyEdu.Modules.Identity.Domain;
 using GiddyEdu.Modules.Platform.Domain;
 using GiddyEdu.Infrastructure.StudentLifecycle;
 using GiddyEdu.Infrastructure.Storage;
@@ -412,6 +413,129 @@ public sealed class PhaseOneIsolationTests
     }
 
     [Fact]
+    public async Task StaffBin_IsTenantScoped_AndRestoreReturnsRecordToActiveDirectory()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
+        var actor = Guid.NewGuid(); var staffId = Guid.NewGuid();
+        fixture.Db.Users.Add(new PlatformUser { Id = actor, UserName = "bin-admin@example.test", DisplayName = "Ada Admin", CreatedAtUtc = fixture.Clock.UtcNow });
+        fixture.Db.StaffProfiles.Add(new StaffProfile(staffId, fixture.TenantA, "BIN-1", "Ada", "Okafor", StaffCategory.Teaching, fixture.CampusA, null, null, null, null, new(2026, 9, 1), fixture.Clock.UtcNow));
+        await fixture.Db.SaveChangesAsync();
+        await fixture.Staff().MoveToBinAsync(actor, staffId);
+        fixture.Db.ChangeTracker.Clear();
+
+        Assert.Empty((await fixture.Staff().ListAsync(actor, 1, 25, null, null)).Items);
+        Assert.Equal(staffId, Assert.Single((await fixture.Staff().ListBinAsync(actor, 1, 25)).Items).Id);
+        var history = await fixture.Staff().GetBinDetailAsync(actor, staffId);
+        Assert.Equal(actor, history.DeletedByUserId);
+        Assert.Equal("Ada Admin", history.DeletedByName);
+        Assert.Contains(history.Activity, item => item.Action == "Staff.MoveToBin" && item.ActorUserId == actor);
+        Assert.Contains(history.Activity, item => item.Action == "Staff.MoveToBin" && item.ActorName == "Ada Admin");
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => fixture.Staff().GetAsync(actor, staffId));
+        fixture.Context.Set(fixture.TenantB, null);
+        Assert.Equal(0, await fixture.Staff().CountBinAsync(actor));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => fixture.Staff().GetBinDetailAsync(actor, staffId));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => fixture.Staff().RestoreAsync(actor, staffId));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => fixture.Staff().PermanentlyDeleteAsync(actor, staffId));
+        fixture.Context.Set(fixture.TenantA, null);
+        await fixture.Staff().RestoreAsync(actor, staffId);
+        fixture.Db.ChangeTracker.Clear();
+        Assert.Equal(staffId, Assert.Single((await fixture.Staff().ListAsync(actor, 1, 25, null, null)).Items).Id);
+        Assert.Equal(0, await fixture.Staff().CountBinAsync(actor));
+    }
+
+    [Fact]
+    public async Task StaffPermanentDelete_RequiresBin_AndKeepsAuditHistory()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
+        var actor = Guid.NewGuid(); var staffId = Guid.NewGuid();
+        fixture.Db.StaffProfiles.Add(new StaffProfile(staffId, fixture.TenantA, "PURGE-1", "Bola", "Eze", StaffCategory.Administrative, fixture.CampusA, null, null, null, null, new(2026, 9, 1), fixture.Clock.UtcNow));
+        fixture.Db.StoredFiles.Add(new StoredFile(Guid.NewGuid(), fixture.TenantA, "staff/purge.png", "purge.png", "image/png", 3, "photo", "StaffProfile", staffId, actor, fixture.Clock.UtcNow));
+        var definitionId = Guid.NewGuid();
+        fixture.Db.CustomFieldDefinitions.Add(new CustomFieldDefinition(definitionId, fixture.TenantA, "Hr", "StaffProfile", "test_field", "Test field", CustomFieldDataType.ShortText, fixture.Clock.UtcNow));
+        fixture.Db.CustomFieldValues.Add(new CustomFieldValue(Guid.NewGuid(), fixture.TenantA, definitionId, "StaffProfile", staffId, "\"private\"", fixture.Clock.UtcNow));
+        fixture.Db.AccountInvitations.Add(new AccountInvitation(Guid.NewGuid(), fixture.TenantA, InvitationTargetType.Staff, staffId, "bola@example.test", new string('B', 64), fixture.Clock.UtcNow, fixture.Clock.UtcNow.AddDays(1)));
+        await fixture.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => fixture.Staff().PermanentlyDeleteAsync(actor, staffId));
+        await fixture.Staff().MoveToBinAsync(actor, staffId);
+        Assert.NotNull(await fixture.Db.AccountInvitations.Where(x => x.TargetId == staffId).Select(x => x.RevokedAtUtc).SingleAsync());
+        await fixture.Staff().PermanentlyDeleteAsync(actor, staffId);
+        fixture.Db.ChangeTracker.Clear();
+        Assert.Equal(0, await fixture.Staff().CountBinAsync(actor));
+        Assert.False(await fixture.Db.StaffProfiles.IgnoreQueryFilters().AnyAsync(x => x.Id == staffId));
+        Assert.False(await fixture.Db.StoredFiles.AnyAsync(x => x.EntityId == staffId && x.EntityType == "StaffProfile"));
+        Assert.False(await fixture.Db.CustomFieldValues.AnyAsync(x => x.EntityId == staffId && x.EntityType == "StaffProfile"));
+        Assert.False(await fixture.Db.AccountInvitations.AnyAsync(x => x.TargetId == staffId && x.TargetType == InvitationTargetType.Staff));
+        Assert.Equal(2, await fixture.Db.AuditRecords.CountAsync(x => x.TargetId == staffId.ToString()));
+    }
+
+    [Fact]
+    public async Task StaffBin_RemovesStaffPermission_ButPreservesLinkedGuardianAccess()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
+        var actor = Guid.NewGuid(); var person = Guid.NewGuid(); var staffId = Guid.NewGuid();
+        var membership = new TenantMembership(Guid.NewGuid(), fixture.TenantA, person, fixture.Clock.UtcNow);
+        var staffRole = new TenantRole(Guid.NewGuid(), fixture.TenantA, "Teacher");
+        var parentRole = new TenantRole(Guid.NewGuid(), fixture.TenantA, "Parent");
+        var staffPermission = new Permission(Guid.NewGuid(), Permissions.StaffView, "View staff");
+        var parentPermission = new Permission(Guid.NewGuid(), Permissions.GuardiansView, "View guardians");
+        var staff = new StaffProfile(staffId, fixture.TenantA, "DUAL-1", "Ada", "Okafor", StaffCategory.Teaching, fixture.CampusA, null, null, null, null, new(2026, 9, 1), fixture.Clock.UtcNow);
+        staff.LinkUser(person, fixture.Clock.UtcNow);
+        var guardian = new Guardian(Guid.NewGuid(), fixture.TenantA, "Ada", "Okafor", "08012345678", null, fixture.Clock.UtcNow);
+        guardian.LinkUser(person);
+        fixture.Db.TenantMemberships.Add(membership); fixture.Db.TenantRoles.AddRange(staffRole, parentRole);
+        fixture.Db.Permissions.AddRange(staffPermission, parentPermission);
+        fixture.Db.RolePermissions.AddRange(new RolePermission(fixture.TenantA, staffRole.Id, staffPermission.Id), new RolePermission(fixture.TenantA, parentRole.Id, parentPermission.Id));
+        fixture.Db.TenantMembershipRoles.AddRange(new TenantMembershipRole(fixture.TenantA, membership.Id, staffRole.Id), new TenantMembershipRole(fixture.TenantA, membership.Id, parentRole.Id));
+        var refreshToken = new RefreshToken(Guid.NewGuid(), fixture.TenantA, person, null, new string('A', 64), fixture.Clock.UtcNow, fixture.Clock.UtcNow.AddDays(1));
+        fixture.Db.RefreshTokens.Add(refreshToken);
+        fixture.Db.StaffProfiles.Add(staff); fixture.Db.Guardians.Add(guardian);
+        await fixture.Db.SaveChangesAsync();
+        var effective = new PermissionService(fixture.Db, fixture.Context);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Staff(new StaffManageWithoutRolesPermissions()).MoveToBinAsync(actor, staffId));
+        Assert.Equal(staffId, (await fixture.Staff().GetAsync(actor, staffId)).Id);
+
+        await fixture.Staff().MoveToBinAsync(actor, staffId);
+        fixture.Db.ChangeTracker.Clear();
+        Assert.False(await effective.HasPermissionAsync(person, Permissions.StaffView));
+        Assert.True(await effective.HasPermissionAsync(person, Permissions.GuardiansView));
+        Assert.NotNull(await fixture.Db.RefreshTokens.Where(x => x.Id == refreshToken.Id).Select(x => x.RevokedAtUtc).SingleAsync());
+        await fixture.Staff().RestoreAsync(actor, staffId);
+        fixture.Db.ChangeTracker.Clear();
+        Assert.True(await effective.HasPermissionAsync(person, Permissions.StaffView));
+        Assert.True(await effective.HasPermissionAsync(person, Permissions.GuardiansView));
+        await fixture.Staff().MoveToBinAsync(actor, staffId);
+        await fixture.Staff().PermanentlyDeleteAsync(actor, staffId);
+        fixture.Db.ChangeTracker.Clear();
+        Assert.True(await fixture.Db.Guardians.AnyAsync(x => x.UserId == person));
+        Assert.False(await effective.HasPermissionAsync(person, Permissions.StaffView));
+        Assert.True(await effective.HasPermissionAsync(person, Permissions.GuardiansView));
+    }
+
+    [Fact]
+    public async Task StaffBin_SuspendsStaffOnlyMembership_AndRestoresIt()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
+        var actor = Guid.NewGuid(); var person = Guid.NewGuid(); var staffId = Guid.NewGuid();
+        var membership = new TenantMembership(Guid.NewGuid(), fixture.TenantA, person, fixture.Clock.UtcNow);
+        var staff = new StaffProfile(staffId, fixture.TenantA, "ONLY-1", "Ada", "Okafor", StaffCategory.Teaching, fixture.CampusA, null, null, null, null, new(2026, 9, 1), fixture.Clock.UtcNow);
+        staff.LinkUser(person, fixture.Clock.UtcNow);
+        fixture.Db.TenantMemberships.Add(membership); fixture.Db.StaffProfiles.Add(staff);
+        await fixture.Db.SaveChangesAsync();
+
+        await fixture.Staff().MoveToBinAsync(actor, staffId);
+        fixture.Db.ChangeTracker.Clear();
+        Assert.False(await fixture.Db.TenantMemberships.Where(x => x.Id == membership.Id).Select(x => x.IsActive).SingleAsync());
+        await fixture.Staff().RestoreAsync(actor, staffId);
+        fixture.Db.ChangeTracker.Clear();
+        Assert.True(await fixture.Db.TenantMemberships.Where(x => x.Id == membership.Id).Select(x => x.IsActive).SingleAsync());
+        await fixture.Staff().MoveToBinAsync(actor, staffId);
+        await fixture.Staff().PermanentlyDeleteAsync(actor, staffId);
+        fixture.Db.ChangeTracker.Clear();
+        Assert.False(await fixture.Db.TenantMemberships.Where(x => x.Id == membership.Id).Select(x => x.IsActive).SingleAsync());
+    }
+
+    [Fact]
     public async Task StaffDocumentContent_RejectsAnotherStaffMembersUpload()
     {
         await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
@@ -494,12 +618,17 @@ public sealed class PhaseOneIsolationTests
         public Task<bool> HasPermissionAsync(Guid userId, string permission, CancellationToken cancellationToken = default) => Task.FromResult(permission == Permissions.StaffView);
         public Task<IReadOnlyCollection<string>> GetEffectivePermissionsAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyCollection<string>>([]);
     }
+    private sealed class StaffManageWithoutRolesPermissions : IPermissionService
+    {
+        public Task<bool> HasPermissionAsync(Guid userId, string permission, CancellationToken cancellationToken = default) => Task.FromResult(permission == Permissions.StaffManage);
+        public Task<IReadOnlyCollection<string>> GetEffectivePermissionsAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyCollection<string>>([]);
+    }
     private sealed class TestFileObjectStorage : IFileObjectStorage
     {
         public string CreateUploadUrl(string objectKey, string contentType) => throw new NotSupportedException();
         public string CreateDownloadUrl(string objectKey) => $"https://files.example.test/{objectKey}";
         public Task<bool> ExistsAsync(string objectKey, CancellationToken cancellationToken) => throw new NotSupportedException();
-        public Task DeleteAsync(string objectKey, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task DeleteAsync(string objectKey, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task UploadAsync(string objectKey, string contentType, Stream content, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<string> ReadTextAsync(string objectKey, long maximumBytes, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task WriteTextAsync(string objectKey, string contentType, string value, CancellationToken cancellationToken) => throw new NotSupportedException();

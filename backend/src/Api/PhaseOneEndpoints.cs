@@ -113,6 +113,9 @@ public static class PhaseOneEndpoints
         hr.MapPut("/positions/{positionId:guid}", UpdatePositionAsync);
         hr.MapDelete("/positions/{positionId:guid}", DeletePositionAsync);
         hr.MapGet("/staff", ListStaffAsync);
+        hr.MapGet("/staff/bin/count", CountStaffBinAsync);
+        hr.MapGet("/staff/bin", ListStaffBinAsync);
+        hr.MapGet("/staff/bin/{staffId:guid}", GetStaffBinDetailAsync);
         hr.MapPost("/staff/export.csv", ExportSelectedStaffAsync).RequireRateLimiting("data-transfer");
         hr.MapGet("/staff/{staffId:guid}", GetStaffAsync);
         hr.MapGet("/staff/{staffId:guid}/positions", ListStaffPositionsAsync);
@@ -123,6 +126,9 @@ public static class PhaseOneEndpoints
         hr.MapPost("/staff", CreateStaffAsync);
         hr.MapPut("/staff/{staffId:guid}", UpdateStaffAsync);
         hr.MapPut("/staff/{staffId:guid}/status", SetStaffStatusAsync);
+        hr.MapDelete("/staff/{staffId:guid}", MoveStaffToBinAsync);
+        hr.MapPost("/staff/{staffId:guid}/restore", RestoreStaffAsync);
+        hr.MapDelete("/staff/{staffId:guid}/permanent", PermanentlyDeleteStaffAsync);
         hr.MapPut("/staff/{staffId:guid}/user", LinkStaffUserAsync);
         hr.MapGet("/staff/{staffId:guid}/sensitive", GetStaffSensitiveAsync).RequireRateLimiting("data-transfer");
         hr.MapPut("/staff/{staffId:guid}/sensitive", UpsertStaffSensitiveAsync).RequireRateLimiting("data-transfer");
@@ -360,6 +366,15 @@ public static class PhaseOneEndpoints
     private static async Task<IResult> DeletePositionAsync(Guid positionId, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
     { var actor = UserId(principal); await service.DeletePositionAsync(actor, positionId, ct); await audit.WriteAsync(actor, "Position.Delete", "Position", positionId.ToString(), "Succeeded", null, ct); return Results.NoContent(); }
     private static async Task<IResult> ListStaffAsync(int page, int pageSize, string? search, StaffStatus? status, StaffCategory? category, string? sort, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListAsync(UserId(principal), page, pageSize == 0 ? 25 : pageSize, search, status, category, sort, ct));
+    private static async Task<IResult> CountStaffBinAsync(ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(new { count = await service.CountBinAsync(UserId(principal), ct) });
+    private static async Task<IResult> ListStaffBinAsync(int page, int pageSize, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListBinAsync(UserId(principal), page, pageSize == 0 ? 25 : pageSize, ct));
+    private static async Task<IResult> GetStaffBinDetailAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.GetBinDetailAsync(UserId(principal), staffId, ct));
+    private static async Task<IResult> MoveStaffToBinAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct)
+    { await service.MoveToBinAsync(UserId(principal), staffId, ct); return Results.NoContent(); }
+    private static async Task<IResult> RestoreStaffAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct)
+    { await service.RestoreAsync(UserId(principal), staffId, ct); return Results.NoContent(); }
+    private static async Task<IResult> PermanentlyDeleteStaffAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct)
+    { await service.PermanentlyDeleteAsync(UserId(principal), staffId, ct); return Results.NoContent(); }
     private static async Task<IResult> GetStaffAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.GetAsync(UserId(principal), staffId, ct));
     private static async Task<IResult> ListStaffPositionsAsync(Guid staffId, ClaimsPrincipal principal, IStaffService service, CancellationToken ct) => Results.Ok(await service.ListStaffPositionsAsync(UserId(principal), staffId, ct));
     private static async Task<IResult> AddStaffPositionAsync(Guid staffId, StaffPositionSelectionInput input, ClaimsPrincipal principal, IStaffService service, IAuditWriter audit, CancellationToken ct)
