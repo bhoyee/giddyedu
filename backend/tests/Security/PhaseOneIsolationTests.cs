@@ -286,6 +286,9 @@ public sealed class PhaseOneIsolationTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => staffService.CreateTeachingAssignmentAsync(Guid.NewGuid(), new(staffId, sectionId, null, TeachingAssignmentRole.ClassTeacher)));
         await staffService.AddStaffPositionAsync(Guid.NewGuid(), staffId, teaching);
         await staffService.CreateTeachingAssignmentAsync(Guid.NewGuid(), new(staffId, sectionId, null, TeachingAssignmentRole.ClassTeacher));
+        var duplicate = await Assert.ThrowsAsync<TeachingAssignmentConflictException>(() =>
+            staffService.CreateTeachingAssignmentAsync(Guid.NewGuid(), new(staffId, sectionId, null, TeachingAssignmentRole.ClassTeacher)));
+        Assert.Contains("already has", duplicate.Message);
         await Assert.ThrowsAsync<InvalidOperationException>(() => staffService.RemoveStaffPositionAsync(Guid.NewGuid(), staffId, teaching));
         Assert.Single(await staffService.ListTeachingAssignmentsAsync(Guid.NewGuid(), sectionId));
     }

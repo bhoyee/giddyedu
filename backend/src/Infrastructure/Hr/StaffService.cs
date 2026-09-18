@@ -12,6 +12,7 @@ using GiddyEdu.Modules.Identity.Domain;
 using GiddyEdu.Modules.Platform.Domain;
 using GiddyEdu.Modules.Subscriptions;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace GiddyEdu.Infrastructure.Hr;
 
@@ -45,6 +46,7 @@ public sealed record StaffRoleAccessInfo(Guid MembershipId, Guid[] RoleIds);
 public sealed record StaffExportInput(Guid[] StaffIds);
 public sealed record TeachingAssignmentInput(Guid StaffId, Guid ClassSectionId, Guid? SubjectId, TeachingAssignmentRole Role);
 public sealed record TeachingAssignmentInfo(Guid Id, Guid StaffId, Guid ClassSectionId, Guid? SubjectId, TeachingAssignmentRole Role);
+public sealed class TeachingAssignmentConflictException(string message) : InvalidOperationException(message);
 
 public interface IStaffService
 {
@@ -473,7 +475,20 @@ public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IF
         if (!eligible) throw new InvalidOperationException("The staff member must be active and have a teaching position before receiving a class or subject assignment.");
         if (!await db.ClassSections.AnyAsync(x => x.Id == input.ClassSectionId && x.IsActive, ct)) throw new InvalidOperationException("The class section must belong to the current tenant and be active.");
         if (input.Role == TeachingAssignmentRole.SubjectTeacher && (!input.SubjectId.HasValue || !await db.ClassSubjects.AnyAsync(x => x.ClassSectionId == input.ClassSectionId && x.SubjectId == input.SubjectId, ct))) throw new InvalidOperationException("The subject must already be assigned to the class section.");
-        var id = Guid.NewGuid(); db.TeachingAssignments.Add(new TeachingAssignment(id, RequireTenant(), input.StaffId, input.ClassSectionId, input.SubjectId, input.Role, clock.UtcNow)); await db.SaveChangesAsync(ct); return id;
+        var existing = await db.TeachingAssignments.AsNoTracking()
+            .Where(x => x.ClassSectionId == input.ClassSectionId && x.Role == input.Role &&
+                (input.Role == TeachingAssignmentRole.SubjectTeacher ? x.StaffId == input.StaffId && x.SubjectId == input.SubjectId : true))
+            .Select(x => new { x.StaffId }).FirstOrDefaultAsync(ct);
+        if (existing is not null)
+            throw new TeachingAssignmentConflictException(existing.StaffId == input.StaffId
+                ? "This staff member already has this class or subject assignment."
+                : "This class already has a teacher for the selected responsibility.");
+        var id = Guid.NewGuid();
+        db.TeachingAssignments.Add(new TeachingAssignment(id, RequireTenant(), input.StaffId, input.ClassSectionId, input.SubjectId, input.Role, clock.UtcNow));
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: { } constraint } && constraint.Contains("TeachingAssignments", StringComparison.Ordinal))
+        { throw new TeachingAssignmentConflictException("This class or subject assignment already exists. Refresh the page to see the current assignments."); }
+        return id;
     }
 
     public async Task DeleteTeachingAssignmentAsync(Guid actor, Guid assignmentId, CancellationToken ct = default)
