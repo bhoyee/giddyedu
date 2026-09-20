@@ -39,7 +39,10 @@ public sealed class PhaseOneDocumentService(GiddyEduDbContext db, IFeatureAccess
         if (input.SizeBytes is <= 0 or > MaximumDocumentBytes) throw new ArgumentOutOfRangeException(nameof(input), "Documents must not exceed 10 MB.");
         if (!AllowedContentTypes.Contains(input.ContentType)) throw new ArgumentException("Only PDF, JPEG, and PNG documents are supported.", nameof(input));
         var category = input.Category.Trim().ToLowerInvariant(); if (!AllowedCategories.Contains(category)) throw new ArgumentException("Document category is not supported.", nameof(input));
-        if (category == "signature" && target != "StaffProfile") throw new ArgumentException("Signature documents are supported only for staff profiles.", nameof(input));
+        if (category == "signature" && target is not ("StaffProfile" or "Guardian")) throw new ArgumentException("Signature documents are supported only for staff and guardian profiles.", nameof(input));
+        if (target == "Guardian" && category is not ("photo" or "signature")) throw new ArgumentException("Guardian uploads must be a photograph or signature.", nameof(input));
+        if (target == "Guardian" && input.ContentType is not ("image/jpeg" or "image/png")) throw new ArgumentException("Guardian photographs and signatures must be JPEG or PNG images.", nameof(input));
+        if (target == "Guardian" && input.SizeBytes > 2 * 1024 * 1024) throw new ArgumentException("Guardian images must not exceed 2 MB.", nameof(input));
         return await files.BeginUploadAsync(input.FileName, input.ContentType, input.SizeBytes, category, target, entityId, actor, ct);
     }
 
@@ -62,11 +65,12 @@ public sealed class PhaseOneDocumentService(GiddyEduDbContext db, IFeatureAccess
 
     private async Task<string> AuthorizeTargetAsync(Guid actor, string entityType, Guid entityId, bool manage, CancellationToken ct)
     {
-        var target = entityType.Trim().ToLowerInvariant() switch { "applicant" => "Applicant", "student" => "Student", "staff" or "staffprofile" => "StaffProfile", _ => throw new ArgumentException("Document target is not supported.", nameof(entityType)) };
+        var target = entityType.Trim().ToLowerInvariant() switch { "applicant" => "Applicant", "student" => "Student", "staff" or "staffprofile" => "StaffProfile", "guardian" => "Guardian", _ => throw new ArgumentException("Document target is not supported.", nameof(entityType)) };
         var (permission, feature) = target switch
         {
             "Applicant" => (manage ? Permissions.AdmissionsSensitiveManage : Permissions.AdmissionsSensitiveView, FeatureKeys.Admissions),
             "Student" => (manage ? Permissions.StudentsSensitiveManage : Permissions.StudentsSensitiveView, FeatureKeys.StudentInformation),
+            "Guardian" => (manage ? Permissions.GuardiansManage : Permissions.GuardiansView, FeatureKeys.GuardianManagement),
             _ => (manage ? Permissions.StaffManage : Permissions.StaffSensitiveView, FeatureKeys.StaffManagement)
         };
         await access.DemandAsync(actor, permission, feature, ct);
@@ -74,6 +78,7 @@ public sealed class PhaseOneDocumentService(GiddyEduDbContext db, IFeatureAccess
         {
             "Applicant" => await db.Applicants.AnyAsync(x => x.Id == entityId, ct),
             "Student" => await StudentIsInScopeAsync(actor, entityId, ct),
+            "Guardian" => await GuardianIsInScopeAsync(actor, entityId, ct),
             _ => await StaffIsInScopeAsync(actor, entityId, ct)
         };
         if (!exists) throw new KeyNotFoundException("Document target was not found."); return target;
@@ -95,4 +100,9 @@ public sealed class PhaseOneDocumentService(GiddyEduDbContext db, IFeatureAccess
         await permissions.HasPermissionAsync(actor, Permissions.StaffManage, ct)
             ? await db.StaffProfiles.AnyAsync(x => x.Id == staffId, ct)
             : await db.StaffProfiles.AnyAsync(x => x.Id == staffId && x.UserId == actor, ct);
+
+    private async Task<bool> GuardianIsInScopeAsync(Guid actor, Guid guardianId, CancellationToken ct) =>
+        await permissions.HasPermissionAsync(actor, Permissions.GuardiansManage, ct)
+            ? await db.Guardians.AnyAsync(x => x.Id == guardianId, ct)
+            : await db.Guardians.AnyAsync(x => x.Id == guardianId && x.UserId == actor, ct);
 }

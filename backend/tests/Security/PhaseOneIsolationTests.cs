@@ -21,6 +21,91 @@ namespace GiddyEdu.SecurityTests;
 public sealed class PhaseOneIsolationTests
 {
     [Fact]
+    public async Task StaffImportHistory_IncludesPreviouslyMovedImports()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var actor = Guid.NewGuid();
+        fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        var operation = new ImportOperation(Guid.NewGuid(), fixture.TenantA, "Staff", actor, fixture.Clock.UtcNow, fixture.CampusA);
+        operation.Queue(Guid.NewGuid()); operation.Start(fixture.Clock.UtcNow); operation.Complete(1, 1, fixture.Clock.UtcNow);
+        fixture.Db.ImportOperations.Add(operation);
+        fixture.Db.Entry(operation).Property(x => x.ArchivedAtUtc).CurrentValue = fixture.Clock.UtcNow;
+        await fixture.Db.SaveChangesAsync();
+        var service = new StaffImportService(fixture.Db, fixture.Context, new AllowedAccess(), new UnusedFileService(),
+            null!, fixture.Clock, null!, null!, null!);
+
+        Assert.Contains(await service.ListAsync(actor), item => item.Id == operation.Id);
+    }
+
+    [Fact]
+    public async Task StaffImportDraftDelete_RequiresCurrentCampusAndRemovesReservedFile()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var actor = Guid.NewGuid(); var operationId = Guid.NewGuid(); var fileId = Guid.NewGuid();
+        fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        var operation = new ImportOperation(operationId, fixture.TenantA, "Staff", actor, fixture.Clock.UtcNow, fixture.CampusA);
+        fixture.Db.ImportOperations.Add(operation);
+        fixture.Db.StoredFiles.Add(new StoredFile(fileId, fixture.TenantA, "imports/draft.csv", "draft.csv", "text/csv", 8,
+            "imports", "StaffImport", operationId, actor, fixture.Clock.UtcNow));
+        await fixture.Db.SaveChangesAsync();
+        var files = new RecordingFileService();
+        var service = new StaffImportService(fixture.Db, fixture.Context, new AllowedAccess(), files,
+            null!, fixture.Clock, null!, null!, null!);
+
+        fixture.Context.Set(fixture.TenantB, fixture.CampusA);
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.DeleteDraftAsync(actor, operationId));
+        fixture.Context.Set(fixture.TenantA, Guid.NewGuid());
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.DeleteDraftAsync(actor, operationId));
+        fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        await service.DeleteDraftAsync(actor, operationId);
+        Assert.Equal(fileId, files.DeletedFileId);
+        Assert.False(await fixture.Db.ImportOperations.AnyAsync(x => x.Id == operationId));
+        Assert.False(await fixture.Db.StoredFiles.AnyAsync(x => x.Id == fileId));
+    }
+
+    [Fact]
+    public async Task StaffImportDraftDelete_DoesNotDeleteQueuedImport()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var actor = Guid.NewGuid(); var operationId = Guid.NewGuid();
+        fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        var operation = new ImportOperation(operationId, fixture.TenantA, "Staff", actor, fixture.Clock.UtcNow, fixture.CampusA);
+        operation.Queue(Guid.NewGuid());
+        fixture.Db.ImportOperations.Add(operation);
+        await fixture.Db.SaveChangesAsync();
+        var service = new StaffImportService(fixture.Db, fixture.Context, new AllowedAccess(), new RecordingFileService(),
+            null!, fixture.Clock, null!, null!, null!);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeleteDraftAsync(actor, operationId));
+        Assert.True(await fixture.Db.ImportOperations.AnyAsync(x => x.Id == operationId));
+    }
+
+    [Fact]
+    public async Task StaffImportContent_RequiresCurrentTenantCampusAndPermission()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var actor = Guid.NewGuid(); var operationId = Guid.NewGuid(); var fileId = Guid.NewGuid();
+        fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        var operation = new GiddyEdu.Modules.StudentLifecycle.Domain.ImportOperation(operationId, fixture.TenantA, "Staff", actor, fixture.Clock.UtcNow, fixture.CampusA);
+        operation.SetStaffCategory((int)StaffCategory.Teaching);
+        fixture.Db.ImportOperations.Add(operation);
+        fixture.Db.StoredFiles.Add(new StoredFile(fileId, fixture.TenantA, "imports/staff.csv", "staff.csv", "text/csv", 8,
+            "imports", "StaffImport", operationId, actor, fixture.Clock.UtcNow));
+        await fixture.Db.SaveChangesAsync(); fixture.Db.ChangeTracker.Clear();
+        var service = new StaffImportService(fixture.Db, fixture.Context, new AllowedAccess(), new UnusedFileService(),
+            null!, fixture.Clock, null!, null!, null!);
+        await using var content = new MemoryStream(new byte[8]);
+
+        fixture.Context.Set(fixture.TenantA, Guid.NewGuid());
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.UploadContentAsync(actor, operationId, content, "text/csv", 8));
+        fixture.Context.Set(fixture.TenantB, Guid.NewGuid());
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.UploadContentAsync(actor, operationId, content, "text/csv", 8));
+        fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        var denied = new StaffImportService(fixture.Db, fixture.Context, new DeniedAccess(), new UnusedFileService(),
+            null!, fixture.Clock, null!, null!, null!);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => denied.UploadContentAsync(actor, operationId, content, "text/csv", 8));
+    }
+
+    [Fact]
     public async Task AcademicStructure_IsTenantIsolated()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -416,6 +501,72 @@ public sealed class PhaseOneIsolationTests
     }
 
     [Fact]
+    public async Task GuardianCreation_RequiresContactAndRejectsStudentOutsideActiveCampus()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        var actor = Guid.NewGuid();
+        var service = fixture.Students();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateGuardianAsync(actor,
+            new GuardianInput("Ada", "Parent", "09096735531", null, "School Road")));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateGuardianAsync(actor,
+            new GuardianInput("Ada", "Parent", "09096735531", "ada@example.test", "")));
+
+        var otherTenantStudent = Guid.NewGuid();
+        fixture.Context.Set(fixture.TenantB, null);
+        fixture.Db.Students.Add(new Student(otherTenantStudent, fixture.TenantB, "B-001", "Other", "Child", new(2015, 1, 1), null, fixture.Clock.UtcNow));
+        await fixture.Db.SaveChangesAsync();
+        fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateGuardianAsync(actor,
+            new GuardianInput("Ada", "Parent", "09096735531", "ada@example.test", "School Road", otherTenantStudent, GuardianRelationshipType.Mother)));
+        Assert.Empty(await fixture.Db.Guardians.ToListAsync());
+        Assert.Empty(await service.SearchGuardianStudentsAsync(actor, "Other"));
+    }
+
+    [Fact]
+    public async Task GuardianDocuments_RespectOwnProfileScope()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        var actor = Guid.NewGuid();
+        var own = new Guardian(Guid.NewGuid(), fixture.TenantA, "Ada", "Parent", "09096735531", "ada@example.test", fixture.Clock.UtcNow);
+        own.LinkUser(actor);
+        var other = new Guardian(Guid.NewGuid(), fixture.TenantA, "Bola", "Parent", "09096735532", "bola@example.test", fixture.Clock.UtcNow);
+        fixture.Db.Guardians.AddRange(own, other);
+        await fixture.Db.SaveChangesAsync();
+        var documents = new PhaseOneDocumentService(fixture.Db, new AllowedAccess(), new ViewOnlyPermissions(), new UnusedFileService());
+
+        Assert.Empty(await documents.ListAsync(actor, "Guardian", own.Id));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => documents.ListAsync(actor, "Guardian", other.Id));
+    }
+
+    [Fact]
+    public async Task GuardianDirectory_SearchSortAndPagingRemainTenantScoped()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Context.Set(fixture.TenantA, null);
+        fixture.Db.Guardians.AddRange(
+            new Guardian(Guid.NewGuid(), fixture.TenantA, "Ada", "Zulu", "09096735531", "ada@example.test", fixture.Clock.UtcNow),
+            new Guardian(Guid.NewGuid(), fixture.TenantA, "Bola", "Alpha", "09096735532", "bola@example.test", fixture.Clock.UtcNow));
+        await fixture.Db.SaveChangesAsync();
+        fixture.Context.Set(fixture.TenantB, null);
+        fixture.Db.Guardians.Add(new Guardian(Guid.NewGuid(), fixture.TenantB, "Other", "Alpha", "09096735533", "other@example.test", fixture.Clock.UtcNow));
+        await fixture.Db.SaveChangesAsync();
+        fixture.Context.Set(fixture.TenantA, null);
+
+        var service = fixture.Students();
+        var first = await service.ListGuardiansAsync(Guid.NewGuid(), 1, 1, null, sort: "lastName");
+        var second = await service.ListGuardiansAsync(Guid.NewGuid(), 2, 1, null, sort: "lastName");
+        var match = await service.ListGuardiansAsync(Guid.NewGuid(), 1, 20, "ADA@EXAMPLE", sort: "email");
+
+        Assert.Equal(2, first.Total);
+        Assert.Equal("Alpha", Assert.Single(first.Items).LastName);
+        Assert.Equal("Zulu", Assert.Single(second.Items).LastName);
+        Assert.Equal("Ada", Assert.Single(match.Items).FirstName);
+    }
+
+    [Fact]
     public async Task StaffBin_IsTenantScoped_AndRestoreReturnsRecordToActiveDirectory()
     {
         await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
@@ -616,6 +767,15 @@ public sealed class PhaseOneIsolationTests
         public Task<string> CreateDownloadUrlAsync(Guid fileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task DeleteAsync(Guid fileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
+    private sealed class RecordingFileService : IFileService
+    {
+        public Guid? DeletedFileId { get; private set; }
+        public Task<FileUpload> BeginUploadAsync(string fileName, string contentType, long sizeBytes, string category, string entityType, Guid entityId, Guid userId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task CompleteUploadAsync(Guid fileId, string checksum, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task UploadContentAsync(Guid fileId, Stream content, string contentType, long? contentLength, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<string> CreateDownloadUrlAsync(Guid fileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task DeleteAsync(Guid fileId, CancellationToken cancellationToken = default) { DeletedFileId = fileId; return Task.CompletedTask; }
+    }
     private sealed class StaffViewOnlyPermissions : IPermissionService
     {
         public Task<bool> HasPermissionAsync(Guid userId, string permission, CancellationToken cancellationToken = default) => Task.FromResult(permission == Permissions.StaffView);
@@ -634,6 +794,7 @@ public sealed class PhaseOneIsolationTests
         public Task DeleteAsync(string objectKey, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task UploadAsync(string objectKey, string contentType, Stream content, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<string> ReadTextAsync(string objectKey, long maximumBytes, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<byte[]> ReadBytesAsync(string objectKey, long maximumBytes, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task WriteTextAsync(string objectKey, string contentType, string value, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 }

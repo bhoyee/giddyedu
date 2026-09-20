@@ -7,6 +7,7 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="AWSSDK.S3" />
+    <PackageReference Include="ClosedXML" />
     <PackageReference Include="Hangfire.AspNetCore" />
     <PackageReference Include="Hangfire.PostgreSql" />
     <PackageReference Include="MailKit" />

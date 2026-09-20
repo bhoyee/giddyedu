@@ -59,15 +59,20 @@ public sealed class AccountInvitationService(GiddyEduDbContext db, ITenantContex
             ? await db.StaffProfiles.Where(x => x.Id == input.TargetId).Join(db.Campuses, staff => staff.CampusId, campus => campus.Id, (_, campus) => campus.Name).SingleAsync(ct)
             : null;
         var isStaff = input.TargetType == InvitationTargetType.Staff;
+        var isGuardian = input.TargetType == InvitationTargetType.Guardian;
         var message = isStaff
             ? $"{schoolName} has created your staff workspace for {campusName}. Your sign-in email is {email}. Use the secure invitation below to choose your password before signing in."
-            : $"{schoolName} has invited you to join its secure school workspace.";
-        var content = GiddyEduEmailTemplate.Create(isStaff ? "Welcome to your staff workspace" : "You’re invited to GiddyEdu", message,
-            isStaff ? "Set up your staff account" : "Accept invitation", link,
+            : isGuardian
+                ? $"Welcome to {schoolName}'s parent portal. Your sign-in email is {email}. Accept this secure invitation to choose your own password and connect to your child's school workspace."
+                : $"{schoolName} has invited you to join its secure school workspace.";
+        var title = isStaff ? "Welcome to your staff workspace" : isGuardian ? "Welcome to your parent portal" : "You're invited to GiddyEdu";
+        var content = GiddyEduEmailTemplate.Create(title, message,
+            isStaff ? "Set up your staff account" : isGuardian ? "Set up your parent account" : "Accept invitation", link,
             supportingText: $"This invitation expires in three days. If the button does not open the complete invitation, copy this full link into your browser: {link} If you were not expecting it, you can safely ignore this email.",
-            organizationName: schoolName, secondaryActionLabel: isStaff ? "Sign-in page" : null,
-            secondaryActionUrl: isStaff ? $"{baseUrl}/login" : null);
-        var payload = JsonSerializer.Serialize(new EmailNotificationPayload(isStaff ? $"{schoolName} | Set up your staff account" : $"{schoolName} | Your invitation", content.HtmlBody, content.TextBody));
+            organizationName: schoolName, secondaryActionLabel: isStaff || isGuardian ? "Sign-in page" : null,
+            secondaryActionUrl: isStaff || isGuardian ? $"{baseUrl}/login" : null);
+        var subject = isStaff ? $"{schoolName} | Set up your staff account" : isGuardian ? $"{schoolName} | Welcome to your parent portal" : $"{schoolName} | Your invitation";
+        var payload = JsonSerializer.Serialize(new EmailNotificationPayload(subject, content.HtmlBody, content.TextBody));
         await notifications.EnqueueAsync("email", email, "identity.account-invitation", payload, ct);
         return new(invitation.Id, invitation.TargetType, invitation.TargetId, invitation.Email, invitation.ExpiresAtUtc);
     }

@@ -1,3 +1,4 @@
+using System.Net.Mail;
 using GiddyEdu.BuildingBlocks.Api;
 using GiddyEdu.BuildingBlocks.Tenancy;
 using GiddyEdu.BuildingBlocks.Time;
@@ -17,9 +18,12 @@ public sealed record ApplicantInfo(Guid Id, string ApplicationNumber, string Fir
 public sealed record ConvertApplicantInput(string AdmissionNumber, Guid AcademicYearId, Guid ClassSectionId, DateOnly EnrolledOn);
 public sealed record StudentInfo(Guid Id, string AdmissionNumber, string FirstName, string LastName, DateOnly DateOfBirth, string? Email, StudentStatus Status);
 public sealed record StudentProfileInput(string FirstName, string LastName, DateOnly DateOfBirth, string? Email = null);
-public sealed record GuardianInput(string FirstName, string LastName, string Phone, string? Email);
+public sealed record GuardianInput(string FirstName, string LastName, string Phone, string? Email, string? Address = null,
+    Guid? StudentId = null, GuardianRelationshipType? Relationship = null, bool IsPrimary = false, bool IsEmergencyContact = false, bool MayCollect = false);
 public sealed record GuardianLinkInput(Guid GuardianId, GuardianRelationshipType Relationship, bool IsPrimary, bool IsEmergencyContact, bool MayCollect);
-public sealed record GuardianInfo(Guid Id, string FirstName, string LastName, string Phone, string? Email);
+public sealed record GuardianInfo(Guid Id, string FirstName, string LastName, string Phone, string? Email, string? Address = null, bool HasAccount = false);
+public sealed record GuardianStudentSearchResult(Guid Id, string AdmissionNumber, string FirstName, string LastName,
+    string ClassLevelName, string ClassSectionName, string CampusName);
 public sealed record EnrollmentInfo(Guid Id, Guid AcademicYearId, Guid ClassSectionId, DateOnly EnrolledOn, EnrollmentStatus Status);
 public sealed record EnrollmentInput(Guid AcademicYearId, Guid ClassSectionId, DateOnly EnrolledOn, EnrollmentStatus PreviousEnrollmentStatus = EnrollmentStatus.Completed);
 public sealed record StudentProgressionInput(StudentProgressionType Type, Guid AcademicYearId, Guid ClassSectionId, DateOnly EffectiveOn, string? Reason);
@@ -61,7 +65,8 @@ public interface IStudentLifecycleService
     Task<Guid> CreateGuardianAsync(Guid actor, GuardianInput input, CancellationToken ct = default);
     Task<GuardianInfo> GetGuardianAsync(Guid actor, Guid guardianId, CancellationToken ct = default);
     Task UpdateGuardianAsync(Guid actor, Guid guardianId, GuardianInput input, CancellationToken ct = default);
-    Task<PageResult<GuardianInfo>> ListGuardiansAsync(Guid actor, int page, int pageSize, string? search, CancellationToken ct = default);
+    Task<PageResult<GuardianInfo>> ListGuardiansAsync(Guid actor, int page, int pageSize, string? search, CancellationToken ct = default, string? sort = null, bool descending = false);
+    Task<IReadOnlyList<GuardianStudentSearchResult>> SearchGuardianStudentsAsync(Guid actor, string query, CancellationToken ct = default);
     Task LinkGuardianAsync(Guid actor, Guid studentId, GuardianLinkInput input, CancellationToken ct = default);
 }
 
@@ -172,19 +177,115 @@ public sealed class StudentLifecycleService(GiddyEduDbContext db, ITenantContext
     { await access.DemandAsync(actor, Permissions.StudentsSensitiveManage, FeatureKeys.StudentInformation, ct); if (!await (await ScopedStudentsAsync(actor, ct)).AnyAsync(x => x.Id == studentId, ct)) throw new KeyNotFoundException("Student was not found."); var record = await db.StudentSensitiveRecords.SingleOrDefaultAsync(x => x.StudentId == studentId, ct); if (record is null) db.StudentSensitiveRecords.Add(new StudentSensitiveRecord(RequireTenant(), studentId, input.Address, input.MedicalInformation, input.Allergies, input.SpecialEducationalNeeds, input.PrivateNotes, clock.UtcNow)); else record.Update(input.Address, input.MedicalInformation, input.Allergies, input.SpecialEducationalNeeds, input.PrivateNotes, clock.UtcNow); await db.SaveChangesAsync(ct); }
 
     public async Task<Guid> CreateGuardianAsync(Guid actor, GuardianInput input, CancellationToken ct = default)
-    { await DemandAsync(actor, Permissions.GuardiansManage, ct); var id = Guid.NewGuid(); db.Guardians.Add(new Guardian(id, RequireTenant(), input.FirstName, input.LastName, input.Phone, input.Email, clock.UtcNow)); await db.SaveChangesAsync(ct); return id; }
+    {
+        await DemandAsync(actor, Permissions.GuardiansManage, ct);
+        var (phone, email) = ValidateGuardianContact(input.Phone, input.Email);
+        if (string.IsNullOrWhiteSpace(input.Address)) throw new ArgumentException("Guardian address is required.", nameof(input));
+        if (await db.Guardians.AnyAsync(x => x.Phone == phone || x.Email != null && x.Email.ToLower() == email, ct))
+            throw new InvalidOperationException("A guardian with this phone number or email already exists. Open that guardian's record instead of creating a duplicate.");
+        if (input.StudentId.HasValue != input.Relationship.HasValue)
+            throw new ArgumentException("Select both a student and the guardian's relationship to that student.");
+        if (input.StudentId is Guid studentId)
+        {
+            await ValidateGuardianStudentAsync(studentId, input.Relationship!.Value, input.IsPrimary, ct);
+        }
+        var id = Guid.NewGuid();
+        var guardian = new Guardian(id, RequireTenant(), input.FirstName, input.LastName, phone, email, clock.UtcNow);
+        guardian.Update(input.FirstName, input.LastName, phone, email, input.Address);
+        db.Guardians.Add(guardian);
+        if (input.StudentId is Guid linkedStudentId)
+            db.StudentGuardians.Add(new StudentGuardian(RequireTenant(), linkedStudentId, id, input.Relationship!.Value,
+                input.IsPrimary, input.IsEmergencyContact, input.MayCollect));
+        await db.SaveChangesAsync(ct);
+        return id;
+    }
 
     public async Task<GuardianInfo> GetGuardianAsync(Guid actor, Guid guardianId, CancellationToken ct = default)
-    { await DemandAsync(actor, Permissions.GuardiansView, ct); var query = db.Guardians.AsNoTracking().Where(x => x.Id == guardianId); if (!await permissionService.HasPermissionAsync(actor, Permissions.GuardiansManage, ct)) query = query.Where(x => x.UserId == actor); return await query.Select(x => new GuardianInfo(x.Id, x.FirstName, x.LastName, x.Phone, x.Email)).SingleOrDefaultAsync(ct) ?? throw new KeyNotFoundException("Guardian was not found."); }
+    { await DemandAsync(actor, Permissions.GuardiansView, ct); var query = db.Guardians.AsNoTracking().Where(x => x.Id == guardianId); if (!await permissionService.HasPermissionAsync(actor, Permissions.GuardiansManage, ct)) query = query.Where(x => x.UserId == actor); return await query.Select(x => new GuardianInfo(x.Id, x.FirstName, x.LastName, x.Phone, x.Email, x.Address)).SingleOrDefaultAsync(ct) ?? throw new KeyNotFoundException("Guardian was not found."); }
 
     public async Task UpdateGuardianAsync(Guid actor, Guid guardianId, GuardianInput input, CancellationToken ct = default)
-    { await DemandAsync(actor, Permissions.GuardiansManage, ct); var guardian = await db.Guardians.SingleOrDefaultAsync(x => x.Id == guardianId, ct) ?? throw new KeyNotFoundException("Guardian was not found."); guardian.Update(input.FirstName, input.LastName, input.Phone, input.Email); await db.SaveChangesAsync(ct); }
+    { await DemandAsync(actor, Permissions.GuardiansManage, ct); var guardian = await db.Guardians.SingleOrDefaultAsync(x => x.Id == guardianId, ct) ?? throw new KeyNotFoundException("Guardian was not found."); var (phone, email) = ValidateGuardianContact(input.Phone, input.Email); if (string.IsNullOrWhiteSpace(input.Address)) throw new ArgumentException("Guardian address is required.", nameof(input)); if (await db.Guardians.AnyAsync(x => x.Id != guardianId && (x.Phone == phone || x.Email != null && x.Email.ToLower() == email), ct)) throw new InvalidOperationException("A guardian with this phone number or email already exists."); guardian.Update(input.FirstName, input.LastName, phone, email, input.Address); await db.SaveChangesAsync(ct); }
 
-    public async Task<PageResult<GuardianInfo>> ListGuardiansAsync(Guid actor, int page, int pageSize, string? search, CancellationToken ct = default)
-    { await DemandAsync(actor, Permissions.GuardiansView, ct); RequireTenant(); page = Math.Max(page, 1); pageSize = Math.Clamp(pageSize, 1, 100); var query = db.Guardians.AsNoTracking(); if (!await permissionService.HasPermissionAsync(actor, Permissions.GuardiansManage, ct)) query = query.Where(x => x.UserId == actor); if (!string.IsNullOrWhiteSpace(search)) { var term = search.Trim(); query = query.Where(x => x.FirstName.Contains(term) || x.LastName.Contains(term) || x.Phone.Contains(term)); } var total = await query.LongCountAsync(ct); var items = await query.OrderBy(x => x.LastName).ThenBy(x => x.FirstName).Skip((page - 1) * pageSize).Take(pageSize).Select(x => new GuardianInfo(x.Id, x.FirstName, x.LastName, x.Phone, x.Email)).ToListAsync(ct); return new(items, page, pageSize, total); }
+    public async Task<IReadOnlyList<GuardianStudentSearchResult>> SearchGuardianStudentsAsync(Guid actor, string query, CancellationToken ct = default)
+    {
+        await DemandAsync(actor, Permissions.GuardiansManage, ct);
+        await access.DemandAsync(actor, Permissions.StudentsView, FeatureKeys.StudentInformation, ct);
+        var campusId = tenant.CampusId ?? throw new InvalidOperationException("Select an active campus before searching for students.");
+        var term = query?.Trim() ?? "";
+        if (term.Length < 2) return [];
+        if (term.Length > 100) throw new ArgumentException("Search text must not exceed 100 characters.", nameof(query));
+        var search = term.ToLowerInvariant();
+        return await (from enrollment in db.Enrollments.AsNoTracking()
+                      join student in db.Students.AsNoTracking() on enrollment.StudentId equals student.Id
+                      join section in db.ClassSections.AsNoTracking() on enrollment.ClassSectionId equals section.Id
+                      join level in db.ClassLevels.AsNoTracking() on section.ClassLevelId equals level.Id
+                      join campus in db.Campuses.AsNoTracking() on section.CampusId equals campus.Id
+                      where enrollment.Status == EnrollmentStatus.Active && student.Status == StudentStatus.Active && section.CampusId == campusId
+                          && (student.FirstName.ToLower().Contains(search) || student.LastName.ToLower().Contains(search) || student.AdmissionNumber.ToLower().Contains(search))
+                      orderby student.LastName, student.FirstName
+                      select new GuardianStudentSearchResult(student.Id, student.AdmissionNumber, student.FirstName, student.LastName,
+                          level.Name, section.Name, campus.Name)).Take(20).ToListAsync(ct);
+    }
+
+    public async Task<PageResult<GuardianInfo>> ListGuardiansAsync(Guid actor, int page, int pageSize, string? search, CancellationToken ct = default, string? sort = null, bool descending = false)
+    {
+        await DemandAsync(actor, Permissions.GuardiansView, ct);
+        RequireTenant();
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        var query = db.Guardians.AsNoTracking();
+        if (!await permissionService.HasPermissionAsync(actor, Permissions.GuardiansManage, ct)) query = query.Where(x => x.UserId == actor);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLowerInvariant();
+            if (term.Length > 100) throw new ArgumentException("Search text must not exceed 100 characters.", nameof(search));
+            query = query.Where(x => x.FirstName.ToLower().Contains(term) || x.LastName.ToLower().Contains(term)
+                || x.Phone.Contains(term) || x.Email != null && x.Email.ToLower().Contains(term));
+        }
+        var total = await query.LongCountAsync(ct);
+        query = (sort?.ToLowerInvariant(), descending) switch
+        {
+            ("firstname", false) => query.OrderBy(x => x.FirstName).ThenBy(x => x.LastName).ThenBy(x => x.Id),
+            ("firstname", true) => query.OrderByDescending(x => x.FirstName).ThenByDescending(x => x.LastName).ThenBy(x => x.Id),
+            ("phone", false) => query.OrderBy(x => x.Phone).ThenBy(x => x.Id),
+            ("phone", true) => query.OrderByDescending(x => x.Phone).ThenBy(x => x.Id),
+            ("email", false) => query.OrderBy(x => x.Email).ThenBy(x => x.Id),
+            ("email", true) => query.OrderByDescending(x => x.Email).ThenBy(x => x.Id),
+            (_, true) => query.OrderByDescending(x => x.LastName).ThenByDescending(x => x.FirstName).ThenBy(x => x.Id),
+            _ => query.OrderBy(x => x.LastName).ThenBy(x => x.FirstName).ThenBy(x => x.Id)
+        };
+        var items = await query.Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(x => new GuardianInfo(x.Id, x.FirstName, x.LastName, x.Phone, x.Email, null, x.UserId != null)).ToListAsync(ct);
+        return new(items, page, pageSize, total);
+    }
 
     public async Task LinkGuardianAsync(Guid actor, Guid studentId, GuardianLinkInput input, CancellationToken ct = default)
     { await DemandAsync(actor, Permissions.GuardiansManage, ct); if (!await db.Students.AnyAsync(x => x.Id == studentId, ct) || !await db.Guardians.AnyAsync(x => x.Id == input.GuardianId, ct)) throw new InvalidOperationException("Student and guardian must belong to the current tenant."); if (input.IsPrimary && await db.StudentGuardians.AnyAsync(x => x.StudentId == studentId && x.IsPrimary, ct)) throw new InvalidOperationException("A student can have only one primary guardian."); if (await db.StudentGuardians.AnyAsync(x => x.StudentId == studentId && x.GuardianId == input.GuardianId, ct)) return; db.StudentGuardians.Add(new StudentGuardian(RequireTenant(), studentId, input.GuardianId, input.Relationship, input.IsPrimary, input.IsEmergencyContact, input.MayCollect)); await db.SaveChangesAsync(ct); }
+
+    private static (string Phone, string Email) ValidateGuardianContact(string phone, string? email)
+    {
+        var normalizedPhone = phone?.Trim() ?? "";
+        if (normalizedPhone.Length != 11 || normalizedPhone.Any(c => c is < '0' or > '9'))
+            throw new ArgumentException("Phone number must contain exactly 11 digits.", nameof(phone));
+        var normalizedEmail = email?.Trim().ToLowerInvariant() ?? "";
+        if (normalizedEmail.Length > 320 || !MailAddress.TryCreate(normalizedEmail, out var parsed) || parsed.Address != normalizedEmail)
+            throw new ArgumentException("A valid email address is required.", nameof(email));
+        return (normalizedPhone, normalizedEmail);
+    }
+
+    private async Task ValidateGuardianStudentAsync(Guid studentId, GuardianRelationshipType relationship, bool isPrimary, CancellationToken ct)
+    {
+        if (!Enum.IsDefined(relationship)) throw new ArgumentException("Choose a valid relationship to the student.", nameof(relationship));
+        var campusId = tenant.CampusId ?? throw new InvalidOperationException("Select an active campus before linking a student.");
+        var inCampus = await (from enrollment in db.Enrollments
+                              join section in db.ClassSections on enrollment.ClassSectionId equals section.Id
+                              join student in db.Students on enrollment.StudentId equals student.Id
+                              where student.Id == studentId && student.Status == StudentStatus.Active && enrollment.Status == EnrollmentStatus.Active && section.CampusId == campusId
+                              select student.Id).AnyAsync(ct);
+        if (!inCampus) throw new InvalidOperationException("Select an active student in the current campus.");
+        if (isPrimary && await db.StudentGuardians.AnyAsync(x => x.StudentId == studentId && x.IsPrimary, ct))
+            throw new InvalidOperationException("This student already has a primary guardian.");
+    }
 
     private Task DemandAsync(Guid actor, string permission, CancellationToken ct)
     {

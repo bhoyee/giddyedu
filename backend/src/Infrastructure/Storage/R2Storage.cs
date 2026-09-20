@@ -49,6 +49,7 @@ public interface IFileObjectStorage
     Task DeleteAsync(string objectKey, CancellationToken cancellationToken);
     Task UploadAsync(string objectKey, string contentType, Stream content, CancellationToken cancellationToken);
     Task<string> ReadTextAsync(string objectKey, long maximumBytes, CancellationToken cancellationToken);
+    Task<byte[]> ReadBytesAsync(string objectKey, long maximumBytes, CancellationToken cancellationToken);
     Task WriteTextAsync(string objectKey, string contentType, string value, CancellationToken cancellationToken);
 }
 
@@ -75,6 +76,9 @@ public sealed class R2FileObjectStorage(IAmazonS3 client, IOptions<R2Options> op
         }, cancellationToken);
     }
     public async Task<string> ReadTextAsync(string objectKey, long maximumBytes, CancellationToken cancellationToken)
+        => System.Text.Encoding.UTF8.GetString(await ReadBytesAsync(objectKey, maximumBytes, cancellationToken));
+
+    public async Task<byte[]> ReadBytesAsync(string objectKey, long maximumBytes, CancellationToken cancellationToken)
     {
         if (maximumBytes <= 0) throw new ArgumentOutOfRangeException(nameof(maximumBytes));
         using var response = await client.GetObjectAsync(settings.Bucket, objectKey, cancellationToken);
@@ -88,7 +92,7 @@ public sealed class R2FileObjectStorage(IAmazonS3 client, IOptions<R2Options> op
             if (buffer.Length + read > maximumBytes) throw new InvalidOperationException("The stored file exceeds the permitted import size.");
             await buffer.WriteAsync(chunk.AsMemory(0, read), cancellationToken);
         }
-        return System.Text.Encoding.UTF8.GetString(buffer.ToArray());
+        return buffer.ToArray();
     }
     public async Task WriteTextAsync(string objectKey, string contentType, string value, CancellationToken cancellationToken)
     {

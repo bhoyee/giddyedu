@@ -3,6 +3,7 @@ using System;
 using GiddyEdu.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GiddyEdu.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(GiddyEduDbContext))]
-    partial class GiddyEduDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260919094340_AddStaffImportCategory")]
+    partial class AddStaffImportCategory
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1811,10 +1814,6 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Address")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -1857,9 +1856,6 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("ArchivedAtUtc")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid?>("CampusId")
                         .HasColumnType("uuid");

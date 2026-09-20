@@ -7,10 +7,12 @@ public enum ImportOperationStatus { AwaitingUpload, Queued, Processing, Complete
 public sealed class ImportOperation : GiddyEdu.BuildingBlocks.Tenancy.ITenantOwned
 {
     private ImportOperation() { }
-    public ImportOperation(Guid id, Guid tenantId, string importType, Guid requestedByUserId, DateTimeOffset now)
-    { if (id == Guid.Empty || tenantId == Guid.Empty || requestedByUserId == Guid.Empty) throw new ArgumentException("Import identifiers are required."); Id = id; TenantId = tenantId; ImportType = Required(importType, 50); RequestedByUserId = requestedByUserId; Status = ImportOperationStatus.AwaitingUpload; CreatedAtUtc = now; }
+    public ImportOperation(Guid id, Guid tenantId, string importType, Guid requestedByUserId, DateTimeOffset now, Guid? campusId = null)
+    { if (id == Guid.Empty || tenantId == Guid.Empty || requestedByUserId == Guid.Empty) throw new ArgumentException("Import identifiers are required."); Id = id; TenantId = tenantId; CampusId = campusId; ImportType = Required(importType, 50); RequestedByUserId = requestedByUserId; Status = ImportOperationStatus.AwaitingUpload; CreatedAtUtc = now; }
     public Guid Id { get; private set; }
     public Guid TenantId { get; private set; }
+    public Guid? CampusId { get; private set; }
+    public int? StaffCategory { get; private set; }
     public string ImportType { get; private set; } = null!;
     public Guid RequestedByUserId { get; private set; }
     public Guid? SourceFileId { get; private set; }
@@ -23,16 +25,18 @@ public sealed class ImportOperation : GiddyEdu.BuildingBlocks.Tenancy.ITenantOwn
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public DateTimeOffset? StartedAtUtc { get; private set; }
     public DateTimeOffset? CompletedAtUtc { get; private set; }
+    public DateTimeOffset? ArchivedAtUtc { get; private set; }
     public void Queue(Guid sourceFileId) { if (Status != ImportOperationStatus.AwaitingUpload || sourceFileId == Guid.Empty) throw new InvalidOperationException("Only a completed import upload can be queued."); SourceFileId = sourceFileId; Status = ImportOperationStatus.Queued; }
+    public void SetStaffCategory(int category) { if (ImportType != "Staff" || Status != ImportOperationStatus.AwaitingUpload || category is < 0 or > 2) throw new ArgumentException("Select a valid staff category."); StaffCategory = category; }
     public void Start(DateTimeOffset now) { if (Status != ImportOperationStatus.Queued) throw new InvalidOperationException("Only queued imports can start."); Status = ImportOperationStatus.Processing; StartedAtUtc = now; ErrorSummary = null; }
-    public void Complete(int totalRows, int importedRows, DateTimeOffset now) { if (Status != ImportOperationStatus.Processing) throw new InvalidOperationException("Only processing imports can complete."); TotalRows = totalRows; ImportedRows = importedRows; RejectedRows = 0; Status = ImportOperationStatus.Completed; CompletedAtUtc = now; }
+    public void Complete(int totalRows, int importedRows, DateTimeOffset now, int rejectedRows = 0, Guid? errorFileId = null) { if (Status != ImportOperationStatus.Processing) throw new InvalidOperationException("Only processing imports can complete."); TotalRows = totalRows; ImportedRows = importedRows; RejectedRows = rejectedRows; ErrorFileId = errorFileId; Status = ImportOperationStatus.Completed; CompletedAtUtc = now; }
     public void Fail(int totalRows, int rejectedRows, string error, DateTimeOffset now, Guid? errorFileId = null) { TotalRows = Math.Max(0, totalRows); RejectedRows = Math.Max(0, rejectedRows); ErrorSummary = Required(error, 2000); ErrorFileId = errorFileId; Status = ImportOperationStatus.Failed; CompletedAtUtc = now; }
     private static string Required(string value, int max) { if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("A value is required."); var result = value.Trim(); if (result.Length > max) throw new ArgumentException($"Value exceeds {max} characters."); return result; }
 }
 
 public enum ApplicationStatus { Draft, Submitted, UnderReview, Waitlisted, Offered, Accepted, Rejected, Withdrawn, Converted }
 public enum StudentStatus { Active, Suspended, Withdrawn, Graduated, Alumni }
-public enum GuardianRelationshipType { Mother, Father, Parent, LegalGuardian, Relative, Sponsor, Other }
+public enum GuardianRelationshipType { Mother, Father, Parent, LegalGuardian, Relative, Sponsor, Other, Stepmother, Stepfather, Grandmother, Grandfather, Aunt, Uncle, Sibling, FosterParent, AdoptiveParent, Caregiver }
 public enum EnrollmentStatus { Active, Completed, Withdrawn, Transferred }
 public enum StudentProgressionType { Promotion, RepeatClass, Transfer }
 public enum InterviewStatus { Scheduled, Completed, Cancelled, NoShow }
@@ -80,8 +84,8 @@ public sealed class Guardian : ITenantOwned
 {
     private Guardian() { }
     public Guardian(Guid id, Guid tenantId, string firstName, string lastName, string phone, string? email, DateTimeOffset now) { if (id == Guid.Empty || tenantId == Guid.Empty) throw new ArgumentException("Guardian identifiers are required."); Id = id; TenantId = tenantId; FirstName = Required(firstName, 100); LastName = Required(lastName, 100); Phone = Required(phone, 30); Email = string.IsNullOrWhiteSpace(email) ? null : email.Trim(); CreatedAtUtc = now; }
-    public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid? UserId { get; private set; } public string FirstName { get; private set; } = null!; public string LastName { get; private set; } = null!; public string Phone { get; private set; } = null!; public string? Email { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
-    public void Update(string firstName, string lastName, string phone, string? email) { FirstName = Required(firstName, 100); LastName = Required(lastName, 100); Phone = Required(phone, 30); Email = string.IsNullOrWhiteSpace(email) ? null : email.Trim().Length > 320 ? throw new ArgumentException("Email must not exceed 320 characters.", nameof(email)) : email.Trim(); }
+    public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid? UserId { get; private set; } public string FirstName { get; private set; } = null!; public string LastName { get; private set; } = null!; public string Phone { get; private set; } = null!; public string? Email { get; private set; } public string? Address { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
+    public void Update(string firstName, string lastName, string phone, string? email, string? address = null) { FirstName = Required(firstName, 100); LastName = Required(lastName, 100); Phone = Required(phone, 30); Email = string.IsNullOrWhiteSpace(email) ? null : email.Trim().Length > 320 ? throw new ArgumentException("Email must not exceed 320 characters.", nameof(email)) : email.Trim(); Address = string.IsNullOrWhiteSpace(address) ? null : Required(address, 1000); }
     public void LinkUser(Guid userId) { if (userId == Guid.Empty) throw new ArgumentException("User identifier is required.", nameof(userId)); if (UserId.HasValue && UserId != userId) throw new InvalidOperationException("Guardian is already linked to another account."); UserId = userId; }
     private static string Required(string value, int max) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > max ? throw new ArgumentException($"Value is required and must not exceed {max} characters.") : value.Trim();
 }

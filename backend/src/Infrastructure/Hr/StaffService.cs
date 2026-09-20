@@ -18,7 +18,8 @@ namespace GiddyEdu.Infrastructure.Hr;
 
 public sealed record PositionInput(string Name, StaffCategory Category = StaffCategory.Administrative);
 public sealed record StaffInput(string? StaffNumber, string FirstName, string LastName, StaffCategory Category, Guid CampusId,
-    Guid? DepartmentId, Guid? PositionId, string? Email, string? Phone, DateOnly HireDate, StaffStatus Status = StaffStatus.Active);
+    Guid? DepartmentId, Guid? PositionId, string? Email, string? Phone, DateOnly HireDate, StaffStatus Status = StaffStatus.Active,
+    string? MiddleName = null, string? Gender = null);
 public sealed record StaffStatusInput(StaffStatus Status, DateOnly? ExitDate);
 public sealed record StaffUserLinkInput(Guid UserId);
 public sealed record StaffSensitiveInput(string? Address, string? NextOfKinName, string? NextOfKinPhone, string? Notes, string? Title = null, string? MiddleName = null,
@@ -401,7 +402,25 @@ public sealed class StaffService(GiddyEduDbContext db, ITenantContext tenant, IF
     }
 
     public async Task<Guid> CreateAsync(Guid actor, StaffInput input, CancellationToken ct = default)
-    { await ManageAsync(actor, ct); var campusId = await ResolveCampusAsync(input.CampusId, null, ct); await ValidateReferencesAsync(input, campusId, ct); ValidateContact(input); await EnsureUniqueContactAsync(input.Email!, input.Phone!, null, ct); var id = Guid.NewGuid(); var staffNumber = await GenerateStaffNumberAsync(ct); var staff = new StaffProfile(id, RequireTenant(), staffNumber, input.FirstName, input.LastName, input.Category, campusId, input.DepartmentId, input.PositionId, input.Email, input.Phone, input.HireDate, clock.UtcNow); staff.SetInitialStatus(input.Status, clock.UtcNow); db.StaffProfiles.Add(staff); await db.SaveChangesAsync(ct); return id; }
+    {
+        await ManageAsync(actor, ct);
+        var campusId = await ResolveCampusAsync(input.CampusId, null, ct);
+        await ValidateReferencesAsync(input, campusId, ct);
+        ValidateContact(input);
+        await EnsureUniqueContactAsync(input.Email!, input.Phone!, null, ct);
+        var id = Guid.NewGuid();
+        var staffNumber = await GenerateStaffNumberAsync(ct);
+        var staff = new StaffProfile(id, RequireTenant(), staffNumber, input.FirstName, input.LastName, input.Category, campusId,
+            input.DepartmentId, input.PositionId, input.Email, input.Phone, input.HireDate, clock.UtcNow);
+        staff.SetInitialStatus(input.Status, clock.UtcNow);
+        db.StaffProfiles.Add(staff);
+        if (!string.IsNullOrWhiteSpace(input.MiddleName) || !string.IsNullOrWhiteSpace(input.Gender))
+            db.StaffSensitiveRecords.Add(new StaffSensitiveRecord(RequireTenant(), id, null, null, null, null, null,
+                input.MiddleName, input.Gender, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, clock.UtcNow));
+        await db.SaveChangesAsync(ct);
+        return id;
+    }
 
     public async Task UpdateAsync(Guid actor, Guid id, StaffInput input, CancellationToken ct = default)
     {

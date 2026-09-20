@@ -6,6 +6,7 @@
   <ItemGroup>
     <PackageVersion Include="AWSSDK.S3" Version="4.0.14.2" />
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <PackageVersion Include="ClosedXML" Version="0.105.1" />
     <PackageVersion Include="Hangfire.AspNetCore" Version="1.8.22" />
     <PackageVersion Include="Hangfire.PostgreSql" Version="1.21.1" />
     <PackageVersion Include="MailKit" Version="4.17.0" />
