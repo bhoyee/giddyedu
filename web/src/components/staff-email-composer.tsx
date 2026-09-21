@@ -21,7 +21,7 @@ const menuLabels: Record<string, string[]> = {
   Help: ["Editor help"],
 };
 
-export function StaffEmailComposer({ recipients, skippedCount, onClose }: { recipients: Recipient[]; skippedCount: number; onClose: () => void }) {
+export function StaffEmailComposer({ recipients, skippedCount, onClose, audience = "staff members", contextLabel = "Staff directory" }: { recipients: Recipient[]; skippedCount: number; onClose: () => void; audience?: string; contextLabel?: string }) {
   const [step, setStep] = useState<"compose" | "preview">("compose");
   const [subject, setSubject] = useState("");
   const [previewText, setPreviewText] = useState("");
@@ -39,11 +39,11 @@ export function StaffEmailComposer({ recipients, skippedCount, onClose }: { reci
     buttons: ["undo", "redo", "bold", "italic", "underline", "strikethrough", "eraser", "font", "fontsize", "paragraph", "brush", "ul", "ol", "outdent", "indent", "left", "center", "right", "justify", "link", "table", "hr", "symbol", "source", "fullsize"],
     disablePlugins: ["filebrowser", "image", "video", "iframe"],
     uploader: { insertImageAsBase64URI: false },
-    placeholder: "Write your message to the selected staff members…",
+    placeholder: `Write your message to the selected ${audience}…`,
     zIndex: 190,
     showCharsCounter: true,
     showWordsCounter: true,
-  }), []);
+  }), [audience]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") { if (activeMenu) setActiveMenu(null); else if (showHelp) setShowHelp(false); else onClose(); } };
@@ -110,13 +110,13 @@ export function StaffEmailComposer({ recipients, skippedCount, onClose }: { reci
     <div className="fixed inset-0 z-[180] grid place-items-center bg-slate-950/65 p-2 backdrop-blur-sm sm:p-5" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
       <div role="dialog" aria-modal="true" aria-labelledby="staff-email-title" className="flex max-h-[min(92vh,900px)] w-full max-w-4xl flex-col overflow-hidden rounded-[1.5rem] bg-white shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-5 sm:px-7">
-          <div><p className="text-[11px] font-black uppercase tracking-[.16em] text-[#28654a]">Staff directory · Email</p><h2 id="staff-email-title" className="mt-1 text-2xl font-black tracking-tight text-slate-950">Compose email</h2><p className="mt-1 text-sm text-slate-500">Prepare a message for the selected staff, then review it before leaving this screen.</p></div>
+          <div><p className="text-[11px] font-black uppercase tracking-[.16em] text-[#28654a]">{contextLabel} · Email</p><h2 id="staff-email-title" className="mt-1 text-2xl font-black tracking-tight text-slate-950">Compose email</h2><p className="mt-1 text-sm text-slate-500">Prepare a message for the selected {audience}, then review it before leaving this screen.</p></div>
           <button type="button" onClick={onClose} aria-label="Close email composer" className="grid size-10 shrink-0 place-items-center rounded-xl bg-slate-100 text-2xl text-slate-600 transition hover:bg-red-50 hover:text-red-700">×</button>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">
           <div className="mb-5 flex items-center gap-3 text-xs font-bold"><span className={`grid size-7 place-items-center rounded-full ${step === "compose" ? "bg-[#12372a] text-white" : "bg-emerald-100 text-emerald-800"}`}>1</span><span className="text-slate-700">Compose</span><span className="h-px w-8 bg-slate-200"/><span className={`grid size-7 place-items-center rounded-full ${step === "preview" ? "bg-[#12372a] text-white" : "bg-slate-100 text-slate-500"}`}>2</span><span className="text-slate-700">Preview</span></div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-[11px] font-black uppercase tracking-[.12em] text-slate-500">Recipients · {recipients.length}</p><div className="mt-2 flex max-h-24 flex-wrap gap-1.5 overflow-y-auto">{recipients.map(recipient => <span key={recipient.email} title={recipient.email} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">{recipient.name}</span>)}</div>{skippedCount > 0 && <p className="mt-2 text-xs text-amber-800">{skippedCount} selected staff member{skippedCount === 1 ? " has" : "s have"} no email address and {skippedCount === 1 ? "is" : "are"} excluded.</p>}</div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-[11px] font-black uppercase tracking-[.12em] text-slate-500">Recipients · {recipients.length}</p><div className="mt-2 flex max-h-24 flex-wrap gap-1.5 overflow-y-auto">{recipients.map(recipient => <span key={recipient.email} title={recipient.email} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">{recipient.name}</span>)}</div>{skippedCount > 0 && <p className="mt-2 text-xs text-amber-800">{skippedCount} selected recipient{skippedCount === 1 ? " has" : "s have"} no email address and {skippedCount === 1 ? "is" : "are"} excluded.</p>}</div>
 
           {step === "compose" ? <div className="mt-5 space-y-4">
             <label className="block text-sm font-bold text-slate-800">Subject <span className="text-red-600">*</span><input value={subject} onChange={event => { setSubject(event.target.value); setError(""); }} maxLength={160} placeholder="Enter a clear subject" className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-normal text-slate-900 outline-none focus:border-[#28654a] focus:ring-2 focus:ring-emerald-100"/></label>

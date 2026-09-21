@@ -70,7 +70,6 @@ export function StaffFormSelect({ name, title, options, optional = false, value,
 
   function toggle() {
     if (disabled) return;
-    if (!open) buttonRef.current?.scrollIntoView({ block: "center", behavior: "instant" });
     setSearch("");
     setOpen(current => !current);
   }

@@ -36,7 +36,9 @@ public sealed class ImportOperation : GiddyEdu.BuildingBlocks.Tenancy.ITenantOwn
 
 public enum ApplicationStatus { Draft, Submitted, UnderReview, Waitlisted, Offered, Accepted, Rejected, Withdrawn, Converted }
 public enum StudentStatus { Active, Suspended, Withdrawn, Graduated, Alumni }
+public enum StudentType { Day, Boarding, DayAndBoarding }
 public enum GuardianRelationshipType { Mother, Father, Parent, LegalGuardian, Relative, Sponsor, Other, Stepmother, Stepfather, Grandmother, Grandfather, Aunt, Uncle, Sibling, FosterParent, AdoptiveParent, Caregiver }
+public enum GuardianStatus { Active, Inactive, Suspended }
 public enum EnrollmentStatus { Active, Completed, Withdrawn, Transferred }
 public enum StudentProgressionType { Promotion, RepeatClass, Transfer }
 public enum InterviewStatus { Scheduled, Completed, Cancelled, NoShow }
@@ -70,12 +72,20 @@ public sealed class Student : ITenantOwned
     private Student() { }
     public Student(Guid id, Guid tenantId, string admissionNumber, string firstName, string lastName, DateOnly dateOfBirth, Guid? sourceApplicantId, DateTimeOffset now, string? email = null)
     { if (id == Guid.Empty || tenantId == Guid.Empty) throw new ArgumentException("Student identifiers are required."); Id = id; TenantId = tenantId; AdmissionNumber = Required(admissionNumber, 50).ToUpperInvariant(); FirstName = Required(firstName, 100); LastName = Required(lastName, 100); DateOfBirth = dateOfBirth; SourceApplicantId = sourceApplicantId; Email = Optional(email, 320); Status = StudentStatus.Active; CreatedAtUtc = now; }
-    public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid? UserId { get; private set; } public string AdmissionNumber { get; private set; } = null!; public string FirstName { get; private set; } = null!; public string LastName { get; private set; } = null!; public DateOnly DateOfBirth { get; private set; } public string? Email { get; private set; } public Guid? SourceApplicantId { get; private set; } public StudentStatus Status { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
+    public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid? UserId { get; private set; } public string AdmissionNumber { get; private set; } = null!; public string FirstName { get; private set; } = null!; public string? MiddleName { get; private set; } public string LastName { get; private set; } = null!; public DateOnly DateOfBirth { get; private set; } public string? Gender { get; private set; } public StudentType StudentType { get; private set; } public string? Email { get; private set; } public string? Phone { get; private set; } public Guid? SourceApplicantId { get; private set; } public StudentStatus Status { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
+    public DateTimeOffset? DeletedAtUtc { get; private set; } public Guid? DeletedByUserId { get; private set; }
+    public Guid? SuspendedStudentRoleId { get; private set; } public bool MembershipSuspendedForBin { get; private set; }
+    public void CompleteRegistration(string? middleName, string? gender, StudentType studentType, string? phone) { MiddleName = Optional(middleName, 100); Gender = Optional(gender, 30); StudentType = studentType; Phone = Optional(phone, 30); }
     public void UpdatePersonalInformation(string firstName, string lastName, DateOnly dateOfBirth, string? email = null) { FirstName = Required(firstName, 100); LastName = Required(lastName, 100); DateOfBirth = dateOfBirth; Email = Optional(email, 320); }
     public void LinkUser(Guid userId) { if (userId == Guid.Empty) throw new ArgumentException("User identifier is required.", nameof(userId)); if (UserId.HasValue && UserId != userId) throw new InvalidOperationException("Student is already linked to another account."); UserId = userId; }
     public void Withdraw() { if (Status != StudentStatus.Active) throw new InvalidOperationException("Only active students can be withdrawn."); Status = StudentStatus.Withdrawn; }
     public void ReactivateForReturn() { if (Status == StudentStatus.Withdrawn) Status = StudentStatus.Active; else if (Status != StudentStatus.Active) throw new InvalidOperationException("Only active or withdrawn students can return for re-enrolment."); }
     public void Graduate() { if (Status != StudentStatus.Active) throw new InvalidOperationException("Only an active student can graduate."); Status = StudentStatus.Graduated; }
+    public void ChangeStatus(StudentStatus status) { if (DeletedAtUtc.HasValue) throw new InvalidOperationException("A student in the bin cannot be updated."); Status = status; }
+    public void MoveToBin(Guid actor, DateTimeOffset now, Guid? suspendedStudentRoleId, bool membershipSuspended)
+    { if (DeletedAtUtc.HasValue) throw new InvalidOperationException("Student is already in the bin."); DeletedAtUtc = now; DeletedByUserId = actor; SuspendedStudentRoleId = suspendedStudentRoleId; MembershipSuspendedForBin = membershipSuspended; }
+    public void Restore()
+    { if (!DeletedAtUtc.HasValue) throw new InvalidOperationException("Student is not in the bin."); DeletedAtUtc = null; DeletedByUserId = null; SuspendedStudentRoleId = null; MembershipSuspendedForBin = false; }
     private static string Required(string value, int max) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > max ? throw new ArgumentException($"Value is required and must not exceed {max} characters.") : value.Trim();
     private static string? Optional(string? value, int max) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length > max ? throw new ArgumentException($"Value must not exceed {max} characters.") : value.Trim();
 }
@@ -84,9 +94,16 @@ public sealed class Guardian : ITenantOwned
 {
     private Guardian() { }
     public Guardian(Guid id, Guid tenantId, string firstName, string lastName, string phone, string? email, DateTimeOffset now) { if (id == Guid.Empty || tenantId == Guid.Empty) throw new ArgumentException("Guardian identifiers are required."); Id = id; TenantId = tenantId; FirstName = Required(firstName, 100); LastName = Required(lastName, 100); Phone = Required(phone, 30); Email = string.IsNullOrWhiteSpace(email) ? null : email.Trim(); CreatedAtUtc = now; }
-    public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid? UserId { get; private set; } public string FirstName { get; private set; } = null!; public string LastName { get; private set; } = null!; public string Phone { get; private set; } = null!; public string? Email { get; private set; } public string? Address { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
-    public void Update(string firstName, string lastName, string phone, string? email, string? address = null) { FirstName = Required(firstName, 100); LastName = Required(lastName, 100); Phone = Required(phone, 30); Email = string.IsNullOrWhiteSpace(email) ? null : email.Trim().Length > 320 ? throw new ArgumentException("Email must not exceed 320 characters.", nameof(email)) : email.Trim(); Address = string.IsNullOrWhiteSpace(address) ? null : Required(address, 1000); }
+    public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid? UserId { get; private set; } public string FirstName { get; private set; } = null!; public string LastName { get; private set; } = null!; public string Phone { get; private set; } = null!; public string? Email { get; private set; } public string? Gender { get; private set; } public string? Address { get; private set; } public GuardianStatus Status { get; private set; } = GuardianStatus.Active; public DateTimeOffset CreatedAtUtc { get; private set; }
+    public DateTimeOffset? DeletedAtUtc { get; private set; } public Guid? DeletedByUserId { get; private set; }
+    public Guid? SuspendedParentRoleId { get; private set; } public bool MembershipSuspendedForBin { get; private set; }
+    public void Update(string firstName, string lastName, string phone, string? email, string? address = null, string? gender = null) { FirstName = Required(firstName, 100); LastName = Required(lastName, 100); Phone = Required(phone, 30); Email = string.IsNullOrWhiteSpace(email) ? null : email.Trim().Length > 320 ? throw new ArgumentException("Email must not exceed 320 characters.", nameof(email)) : email.Trim(); Address = string.IsNullOrWhiteSpace(address) ? null : Required(address, 1000); if (!string.IsNullOrWhiteSpace(gender)) Gender = Required(gender, 30); }
     public void LinkUser(Guid userId) { if (userId == Guid.Empty) throw new ArgumentException("User identifier is required.", nameof(userId)); if (UserId.HasValue && UserId != userId) throw new InvalidOperationException("Guardian is already linked to another account."); UserId = userId; }
+    public void ChangeStatus(GuardianStatus status) { if (DeletedAtUtc.HasValue) throw new InvalidOperationException("A guardian in the bin cannot be updated."); Status = status; }
+    public void MoveToBin(Guid actor, DateTimeOffset now, Guid? suspendedParentRoleId, bool membershipSuspended)
+    { if (DeletedAtUtc.HasValue) throw new InvalidOperationException("Guardian is already in the bin."); DeletedAtUtc = now; DeletedByUserId = actor; SuspendedParentRoleId = suspendedParentRoleId; MembershipSuspendedForBin = membershipSuspended; }
+    public void Restore()
+    { if (!DeletedAtUtc.HasValue) throw new InvalidOperationException("Guardian is not in the bin."); DeletedAtUtc = null; DeletedByUserId = null; SuspendedParentRoleId = null; MembershipSuspendedForBin = false; }
     private static string Required(string value, int max) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > max ? throw new ArgumentException($"Value is required and must not exceed {max} characters.") : value.Trim();
 }
 
@@ -95,6 +112,7 @@ public sealed class StudentGuardian : ITenantOwned
     private StudentGuardian() { }
     public StudentGuardian(Guid tenantId, Guid studentId, Guid guardianId, GuardianRelationshipType relationship, bool isPrimary, bool isEmergencyContact, bool mayCollect) { TenantId = tenantId; StudentId = studentId; GuardianId = guardianId; Relationship = relationship; IsPrimary = isPrimary; IsEmergencyContact = isEmergencyContact; MayCollect = mayCollect; }
     public Guid TenantId { get; private set; } public Guid StudentId { get; private set; } public Guid GuardianId { get; private set; } public GuardianRelationshipType Relationship { get; private set; } public bool IsPrimary { get; private set; } public bool IsEmergencyContact { get; private set; } public bool MayCollect { get; private set; }
+    public void ChangeRelationship(GuardianRelationshipType relationship) => Relationship = relationship;
 }
 
 public sealed class Enrollment : ITenantOwned

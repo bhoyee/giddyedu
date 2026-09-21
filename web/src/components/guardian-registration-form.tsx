@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { notify } from "@/components/app-toast";
 
 type StudentMatch = { id: string; admissionNumber: string; firstName: string; lastName: string; classLevelName: string; classSectionName: string; campusName: string };
+type StudentLink = { student: StudentMatch; relationship: number; isPrimary: boolean; isEmergencyContact: boolean; mayCollect: boolean };
 const relationships = [
   [0, "Mother"], [1, "Father"], [2, "Parent"], [3, "Legal guardian"], [4, "Relative"],
   [5, "Sponsor"], [6, "Other"], [7, "Stepmother"], [8, "Stepfather"], [9, "Grandmother"],
@@ -50,9 +51,13 @@ export function GuardianRegistrationForm({ onCreated }: { onCreated: () => void 
   const [search, setSearch] = useState("");
   const [matches, setMatches] = useState<StudentMatch[]>([]);
   const [selected, setSelected] = useState<StudentMatch | null>(null);
+  const [studentLinks, setStudentLinks] = useState<StudentLink[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
   const [searched, setSearched] = useState(false);
   const [relationship, setRelationship] = useState("");
+  const [linkPrimary,setLinkPrimary]=useState(false);
+  const [linkEmergency,setLinkEmergency]=useState(false);
+  const [linkMayCollect,setLinkMayCollect]=useState(false);
   const [relationshipOpen, setRelationshipOpen] = useState(false);
   const firstNameRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -101,7 +106,7 @@ export function GuardianRegistrationForm({ onCreated }: { onCreated: () => void 
   }, []);
 
   useEffect(() => {
-    if (!open || selected || search.trim().length < 2) return;
+    if (!open || search.trim().length < 2) return;
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setSearchBusy(true);
@@ -110,14 +115,23 @@ export function GuardianRegistrationForm({ onCreated }: { onCreated: () => void 
           cache: "no-store", signal: controller.signal,
         });
         if (!response.ok) throw new Error(await problem(response, "Students could not be searched."));
-        setMatches(await response.json() as StudentMatch[]);
+        const found=await response.json() as StudentMatch[];
+        setMatches(found.filter(student=>!studentLinks.some(link=>link.student.id===student.id)));
         setSearched(true);
       } catch (reason) {
         if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Students could not be searched.");
       } finally { if (!controller.signal.aborted) setSearchBusy(false); }
     }, 300);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [open, search, selected]);
+  }, [open, search, studentLinks]);
+
+  function addStudentLink(){
+    if(!selected){setError("Select a student from the search results.");return}
+    if(!relationship){setError("Choose the guardian's relationship to this student.");return}
+    if(studentLinks.some(link=>link.student.id===selected.id)){setError("This student is already linked in the form.");return}
+    setStudentLinks(current=>[...current,{student:selected,relationship:Number(relationship),isPrimary:linkPrimary,isEmergencyContact:linkEmergency,mayCollect:linkMayCollect}]);
+    setSelected(null);setRelationship("");setSearch("");setMatches([]);setSearched(false);setLinkPrimary(false);setLinkEmergency(false);setLinkMayCollect(false);setError("");
+  }
 
   function selectImage(file: File | undefined, kind: "photo" | "signature") {
     if (!file) { if (kind === "photo") { setPhoto(null); setPhotoUrl(null); } else { setSignature(null); setSignatureUrl(null); } return; }
@@ -131,8 +145,7 @@ export function GuardianRegistrationForm({ onCreated }: { onCreated: () => void 
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selected) { setError("Select a student from the search results."); return; }
-    if (!relationship) { setError("Choose the guardian's relationship to the student."); return; }
+    if (studentLinks.length === 0) { setError("Link the guardian to at least one student."); return; }
     const form = event.currentTarget;
     const data = new FormData(form);
     const phone = String(data.get("phone") ?? "").trim();
@@ -145,9 +158,7 @@ export function GuardianRegistrationForm({ onCreated }: { onCreated: () => void 
         body: JSON.stringify({
           firstName: String(data.get("firstName") ?? "").trim(), lastName: String(data.get("lastName") ?? "").trim(),
           phone, email: String(data.get("email") ?? "").trim(), address: String(data.get("address") ?? "").trim(),
-          studentId: selected.id, relationship: Number(relationship),
-          isPrimary: data.get("isPrimary") === "on", isEmergencyContact: data.get("isEmergencyContact") === "on",
-          mayCollect: data.get("mayCollect") === "on",
+          studentLinks: studentLinks.map(link=>({studentId:link.student.id,relationship:link.relationship,isPrimary:link.isPrimary,isEmergencyContact:link.isEmergencyContact,mayCollect:link.mayCollect})),
         }),
       });
       if (!response.ok) throw new Error(await problem(response, "Guardian could not be created."));
@@ -167,7 +178,7 @@ export function GuardianRegistrationForm({ onCreated }: { onCreated: () => void 
       const invitationError = invitation.ok ? "" : await problem(invitation, "Invitation could not be queued.");
       notify(imageErrors.length || invitationError
         ? { tone: "error", title: "Guardian saved with follow-up needed", message: `${invitationError ? `Invitation: ${invitationError}. ` : ""}${imageErrors.join("; ")}` }
-        : { title: "Guardian added", message: "The student link is saved and a secure parent account invitation is queued." });
+        : { title: "Guardian added", message: `${studentLinks.length} student link${studentLinks.length===1?" is":"s are"} saved and a secure parent account invitation is queued.` });
       setOpen(false); onCreated();
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "Guardian could not be created.";
@@ -179,7 +190,7 @@ export function GuardianRegistrationForm({ onCreated }: { onCreated: () => void 
   }
 
   if (!canManage) return null;
-  return <div className="mt-7 flex justify-end"><button type="button" onClick={() => { setOpen(true); setError(""); }} className="tenant-primary-bg rounded-xl px-5 py-2.5 text-sm font-bold text-white shadow-sm">Add guardian</button>
+  return <div><button type="button" onClick={() => { setStudentLinks([]); setSelected(null); setSearch(""); setRelationship(""); setOpen(true); setError(""); }} className="tenant-primary-bg rounded-xl px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5">Add guardian</button>
     {open && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-2 sm:p-6" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setOpen(false); }}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="guardian-dialog-title" className="flex max-h-[95dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[90dvh] sm:rounded-3xl">
         <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-7"><div><p className="text-xs font-black uppercase tracking-widest tenant-primary-text">Guardian registration</p><h2 id="guardian-dialog-title" className="mt-1 text-xl font-black text-slate-950">Add a parent or guardian</h2><p className="mt-1 text-sm text-slate-600">Confirm the child and their relationship before saving.</p></div><button type="button" disabled={busy} onClick={() => setOpen(false)} aria-label="Close guardian form" className="rounded-lg px-2 text-2xl text-slate-600 hover:bg-slate-100">×</button></div>
@@ -191,13 +202,13 @@ export function GuardianRegistrationForm({ onCreated }: { onCreated: () => void 
         <label className="text-sm font-semibold text-slate-700">Email address *<input name="email" required type="email" maxLength={320} autoComplete="email" className={inputClass}/></label>
         <label className="text-sm font-semibold text-slate-700 md:col-span-2">Address *<textarea name="address" required maxLength={1000} rows={3} autoComplete="street-address" className={inputClass}/></label>
       </div></div>
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"><h3 className="text-sm font-black text-slate-900">Link to a student</h3><p className="mt-1 text-xs leading-5 text-slate-600">Type at least two letters of the student&apos;s name or admission number. Results show the current class and campus so you can confirm the right child.</p>
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"><h3 className="text-sm font-black text-slate-900">Link students</h3><p className="mt-1 text-xs leading-5 text-slate-600">Search and add every child connected to this guardian. Each child can have a different relationship and collection permission.</p>
         <div className="mt-4 grid gap-4 lg:grid-cols-2"><div className="relative"><label htmlFor="guardian-student-search" className="text-sm font-semibold text-slate-700">Find student *</label><input id="guardian-student-search" value={search} onChange={event => { setSearch(event.target.value); setSelected(null); setMatches([]); setSearched(false); }} autoComplete="off" placeholder="Search name or admission number" className={inputClass}/>
           {!selected && search.trim().length >= 2 && <div role="listbox" aria-label="Student matches" className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">{searchBusy ? <p className="p-3 text-sm text-slate-500">Searching…</p> : matches.length ? matches.map(student => <button key={student.id} role="option" aria-selected={false} type="button" onClick={() => { setSelected(student); setSearch(`${student.firstName} ${student.lastName}`); setMatches([]); }} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-slate-100"><span className="block text-sm font-bold text-slate-900">{student.firstName} {student.lastName}</span><span className="block text-xs text-slate-600">{student.admissionNumber} · {classLabel(student)} · {student.campusName}</span></button>) : searched ? <p className="p-3 text-sm text-slate-500">No active student matched in this campus.</p> : <p className="p-3 text-sm text-slate-500">Searching…</p>}</div>}
         </div><div className="relative"><span id="guardian-relationship-label" className="text-sm font-semibold text-slate-700">Relationship to this student *</span><button type="button" aria-labelledby="guardian-relationship-label" aria-expanded={relationshipOpen} aria-haspopup="listbox" onClick={() => setRelationshipOpen(value => !value)} className={`${inputClass} flex items-center justify-between text-left`}>{relationships.find(([value]) => String(value) === relationship)?.[1] ?? "Select relationship"}<span aria-hidden="true">⌄</span></button>
           {relationshipOpen && <div role="listbox" aria-labelledby="guardian-relationship-label" className="mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">{relationships.map(([value, label]) => <button key={value} type="button" role="option" aria-selected={relationship === String(value)} onClick={() => { setRelationship(String(value)); setRelationshipOpen(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-slate-900 hover:bg-slate-100">{label}</button>)}</div>}</div></div>
-        {selected && <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><strong>Selected:</strong> {selected.firstName} {selected.lastName} · {selected.admissionNumber} · {classLabel(selected)} · {selected.campusName}</p>}
-        <div className="mt-4 flex flex-wrap gap-x-6 gap-y-3 text-sm text-slate-700"><label className="flex items-center gap-2"><input type="checkbox" name="isPrimary"/>Primary guardian</label><label className="flex items-center gap-2"><input type="checkbox" name="isEmergencyContact"/>Emergency contact</label><label className="flex items-center gap-2"><input type="checkbox" name="mayCollect"/>May collect student</label></div>
+        {selected && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><strong>Selected:</strong> {selected.firstName} {selected.lastName} · {selected.admissionNumber} · {classLabel(selected)} · {selected.campusName}<div className="mt-3 flex flex-wrap gap-x-6 gap-y-3 text-sm text-slate-700"><label className="flex items-center gap-2"><input type="checkbox" checked={linkPrimary} onChange={event=>setLinkPrimary(event.target.checked)}/>Primary guardian</label><label className="flex items-center gap-2"><input type="checkbox" checked={linkEmergency} onChange={event=>setLinkEmergency(event.target.checked)}/>Emergency contact</label><label className="flex items-center gap-2"><input type="checkbox" checked={linkMayCollect} onChange={event=>setLinkMayCollect(event.target.checked)}/>May collect student</label></div><button type="button" onClick={addStudentLink} className="tenant-primary-bg mt-3 rounded-lg px-4 py-2 text-xs font-black text-white">Add this student</button></div>}
+        {studentLinks.length>0&&<div className="mt-4 space-y-2"><p className="text-xs font-black uppercase tracking-wide text-slate-500">Linked students · {studentLinks.length}</p>{studentLinks.map(link=><div key={link.student.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3"><div><p className="text-sm font-black text-slate-900">{link.student.firstName} {link.student.lastName}</p><p className="mt-0.5 text-xs text-slate-500">{link.student.admissionNumber} · {classLabel(link.student)} · {relationships.find(([value])=>value===link.relationship)?.[1]}</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{[link.isPrimary&&"Primary",link.isEmergencyContact&&"Emergency contact",link.mayCollect&&"May collect"].filter(Boolean).join(" · ")||"Standard guardian link"}</p></div><button type="button" onClick={()=>setStudentLinks(current=>current.filter(item=>item.student.id!==link.student.id))} className="rounded-lg bg-red-50 px-3 py-2 text-xs font-black text-red-700 hover:bg-red-100">Remove</button></div>)}</div>}
       </div>
       <div><h3 className="text-sm font-black text-slate-900">Optional images</h3><p className="mt-1 text-xs text-slate-600">JPEG or PNG, up to 2 MB each. Uploads are stored with the guardian profile.</p><div className="mt-4 grid gap-4 sm:grid-cols-2">
         <label className="rounded-2xl border border-dashed border-slate-300 p-4 text-sm font-semibold text-slate-700">Guardian photograph<input type="file" accept="image/jpeg,image/png" onChange={event => selectImage(event.target.files?.[0], "photo")} className="mt-3 block w-full cursor-pointer text-xs file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:font-bold"/>{photoUrl && <img src={photoUrl} alt="Guardian photograph preview" className="mt-4 h-28 w-28 rounded-xl object-cover"/>}</label>

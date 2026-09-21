@@ -413,11 +413,11 @@ public sealed class PhaseOneIsolationTests
         fixture.Db.ImportOperations.AddRange(
             new ImportOperation(applicantImportId, fixture.TenantA, "Applicants", Guid.NewGuid(), fixture.Clock.UtcNow),
             new ImportOperation(studentImportId, fixture.TenantA, "Students", Guid.NewGuid(), fixture.Clock.UtcNow),
-            new ImportOperation(guardianImportId, fixture.TenantA, "Guardians", Guid.NewGuid(), fixture.Clock.UtcNow));
-        await fixture.Db.SaveChangesAsync(); fixture.Db.ChangeTracker.Clear(); fixture.Context.Set(fixture.TenantB, null);
+            new ImportOperation(guardianImportId, fixture.TenantA, "Guardians", Guid.NewGuid(), fixture.Clock.UtcNow, fixture.CampusA));
+        await fixture.Db.SaveChangesAsync(); fixture.Db.ChangeTracker.Clear(); fixture.Context.Set(fixture.TenantB, fixture.CampusA);
         Assert.Empty(await fixture.Db.ImportOperations.ToListAsync());
         var applicants = new ApplicantImportService(fixture.Db, fixture.Context, new AllowedAccess(), null!, fixture.Clock, null!);
-        var profiles = new ProfileImportService(fixture.Db, fixture.Context, new AllowedAccess(), null!, fixture.Clock, null!);
+        var profiles = new ProfileImportService(fixture.Db, fixture.Context, new AllowedAccess(), null!, fixture.Clock, null!, null!, new AllowedPermissions());
         await Assert.ThrowsAsync<KeyNotFoundException>(() => applicants.GetAsync(Guid.NewGuid(), applicantImportId));
         await Assert.ThrowsAsync<KeyNotFoundException>(() => profiles.GetStudentsAsync(Guid.NewGuid(), studentImportId));
         await Assert.ThrowsAsync<KeyNotFoundException>(() => profiles.GetGuardiansAsync(Guid.NewGuid(), guardianImportId));
@@ -526,6 +526,60 @@ public sealed class PhaseOneIsolationTests
     }
 
     [Fact]
+    public async Task GuardianCreation_LinksMultipleStudentsWithinTheActiveCampus()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        var yearId = Guid.NewGuid(); var levelId = Guid.NewGuid(); var sectionId = Guid.NewGuid(); var now = fixture.Clock.UtcNow;
+        var firstId = Guid.NewGuid(); var secondId = Guid.NewGuid();
+        fixture.Db.ClassSections.Add(new ClassSection(sectionId, fixture.TenantA, fixture.CampusA, yearId, levelId, "Primary 3 A", "PRI3-A", 30, now));
+        fixture.Db.Students.AddRange(
+            new Student(firstId, fixture.TenantA, "STU-001", "First", "Child", new(2017, 1, 1), null, now),
+            new Student(secondId, fixture.TenantA, "STU-002", "Second", "Child", new(2018, 1, 1), null, now));
+        fixture.Db.Enrollments.AddRange(
+            new Enrollment(Guid.NewGuid(), fixture.TenantA, firstId, yearId, sectionId, new(2026, 9, 1), now),
+            new Enrollment(Guid.NewGuid(), fixture.TenantA, secondId, yearId, sectionId, new(2026, 9, 1), now));
+        await fixture.Db.SaveChangesAsync();
+
+        var guardianId = await fixture.Students().CreateGuardianAsync(Guid.NewGuid(), new GuardianInput(
+            "Ada", "Parent", "09096735531", "ada@example.test", "School Road", StudentLinks:
+            [new(firstId, GuardianRelationshipType.Mother, true, true, true),
+             new(secondId, GuardianRelationshipType.Mother, true, true, true)]));
+
+        var links = await fixture.Db.StudentGuardians.Where(x => x.GuardianId == guardianId).ToListAsync();
+        Assert.Equal(2, links.Count);
+        Assert.Contains(links, x => x.StudentId == firstId);
+        Assert.Contains(links, x => x.StudentId == secondId);
+    }
+
+    [Fact]
+    public async Task StudentRegistration_GeneratesNumber_EnrolsInActiveCampus_AndReusesGuardian()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        var now = fixture.Clock.UtcNow; var yearId = Guid.NewGuid(); var sectionId = Guid.NewGuid(); var levelId = Guid.NewGuid();
+        fixture.Db.AcademicYears.Add(new AcademicYear(yearId, fixture.TenantA, "2026/2027", new(2026, 9, 1), new(2027, 7, 31), now));
+        fixture.Db.ClassSections.Add(new ClassSection(sectionId, fixture.TenantA, fixture.CampusA, yearId, levelId, "JSS 1 A", "JSS1-A", 30, now));
+        var existingGuardian = new Guardian(Guid.NewGuid(), fixture.TenantA, "Ada", "Parent", "09096735531", "ada@example.test", now);
+        fixture.Db.Guardians.Add(existingGuardian); await fixture.Db.SaveChangesAsync();
+
+        var registration = new StudentRegistrationInput(
+            "Tomi", "K", "Student", new DateOnly(2014, 2, 3), "Female", StudentType.Day, null, null,
+            yearId, sectionId, new DateOnly(2026, 9, 7), "School Road", null, null, null, null,
+            new StudentGuardianRegistrationInput("Ada", "Parent", "09096735531", "ada@example.test", "Female",
+                "School Road", GuardianRelationshipType.Mother));
+        var result = await fixture.Students().CreateStudentAsync(Guid.NewGuid(), registration);
+
+        Assert.StartsWith("STU-", result.AdmissionNumber);
+        Assert.Equal(existingGuardian.Id, result.GuardianId);
+        Assert.False(result.GuardianNeedsInvitation);
+        Assert.Equal(1, await fixture.Db.Guardians.CountAsync());
+        Assert.True(await fixture.Db.Enrollments.AnyAsync(x => x.StudentId == result.StudentId && x.ClassSectionId == sectionId));
+        Assert.True(await fixture.Db.StudentGuardians.AnyAsync(x => x.StudentId == result.StudentId && x.GuardianId == existingGuardian.Id));
+        var duplicate = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Students().CreateStudentAsync(Guid.NewGuid(), registration));
+        Assert.Contains("same name, date of birth and gender", duplicate.Message);
+    }
+
+    [Fact]
     public async Task GuardianDocuments_RespectOwnProfileScope()
     {
         await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, fixture.CampusA);
@@ -539,6 +593,91 @@ public sealed class PhaseOneIsolationTests
 
         Assert.Empty(await documents.ListAsync(actor, "Guardian", own.Id));
         await Assert.ThrowsAsync<KeyNotFoundException>(() => documents.ListAsync(actor, "Guardian", other.Id));
+    }
+
+    [Fact]
+    public async Task GuardianBin_HidesActiveRecord_AndRestoresWithinItsTenant()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        var guardian = new Guardian(Guid.NewGuid(), fixture.TenantA, "Ada", "Parent", "09096735531", "ada@example.test", fixture.Clock.UtcNow);
+        fixture.Db.Guardians.Add(guardian);
+        await fixture.Db.SaveChangesAsync();
+        var actor = Guid.NewGuid();
+        var bin = new GuardianBinService(fixture.Db, fixture.Context, new AllowedAccess(), new AllowedPermissions(),
+            new TestFileObjectStorage(), fixture.Clock);
+
+        await bin.MoveAsync(actor, guardian.Id);
+        Assert.Empty(await fixture.Db.Guardians.ToListAsync());
+        Assert.Equal(1, await bin.CountAsync(actor));
+        Assert.Equal(guardian.Id, Assert.Single((await bin.ListAsync(actor, 1, 20)).Items).Id);
+        Assert.Empty((await bin.ListAsync(actor, 1, 20, "nobody")).Items);
+
+        fixture.Context.Set(fixture.TenantB, fixture.CampusA);
+        Assert.Equal(0, await bin.CountAsync(actor));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => bin.RestoreAsync(actor, guardian.Id));
+
+        fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        await bin.RestoreAsync(actor, guardian.Id);
+        Assert.Equal(guardian.Id, Assert.Single(await fixture.Db.Guardians.ToListAsync()).Id);
+        Assert.Equal(0, await bin.CountAsync(actor));
+    }
+
+    [Fact]
+    public async Task GuardianBin_RequiresExplicitStudentUnlinkConfirmation()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        var guardian = new Guardian(Guid.NewGuid(), fixture.TenantA, "Ada", "Parent", "09096735531", "ada@example.test", fixture.Clock.UtcNow);
+        var student = new Student(Guid.NewGuid(), fixture.TenantA, "STU-LINK", "Linked", "Child", new(2016, 1, 1), null, fixture.Clock.UtcNow);
+        var secondStudent = new Student(Guid.NewGuid(), fixture.TenantA, "STU-LINK-2", "Second", "Child", new(2017, 1, 1), null, fixture.Clock.UtcNow);
+        fixture.Db.Guardians.Add(guardian); fixture.Db.Students.AddRange(student, secondStudent);
+        fixture.Db.StudentGuardians.AddRange(
+            new StudentGuardian(fixture.TenantA, student.Id, guardian.Id, GuardianRelationshipType.Mother, true, true, true),
+            new StudentGuardian(fixture.TenantA, secondStudent.Id, guardian.Id, GuardianRelationshipType.Mother, false, false, true));
+        await fixture.Db.SaveChangesAsync();
+        var actor = Guid.NewGuid(); var bin = new GuardianBinService(fixture.Db, fixture.Context, new AllowedAccess(), new AllowedPermissions(), new TestFileObjectStorage(), fixture.Clock);
+
+        var blocked = await Assert.ThrowsAsync<GuardianStudentLinksExistException>(() => bin.MoveAsync(actor, guardian.Id));
+        Assert.Contains("linked to 2 students", blocked.Message);
+        Assert.Equal(2, await fixture.Db.StudentGuardians.CountAsync());
+        var links = await bin.ListStudentLinksAsync(actor, guardian.Id);
+        Assert.Contains(links, link => link.StudentId == student.Id && link.FirstName == "Linked" && link.AdmissionNumber == "STU-LINK");
+
+        fixture.Context.Set(fixture.TenantB, fixture.CampusA);
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => bin.ListStudentLinksAsync(actor, guardian.Id));
+        fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+
+        await bin.UnlinkStudentAsync(actor, guardian.Id, student.Id);
+        Assert.Single(await fixture.Db.StudentGuardians.ToListAsync());
+        await bin.UnlinkAllStudentsAsync(actor, guardian.Id);
+        Assert.Empty(await fixture.Db.StudentGuardians.ToListAsync());
+        await bin.MoveAsync(actor, guardian.Id);
+        Assert.Equal(1, await bin.CountAsync(actor));
+    }
+
+    [Fact]
+    public async Task SelectedGuardianExport_RejectsCrossTenantAndBinnedIds()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var actor = Guid.NewGuid();
+        fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        var active = new Guardian(Guid.NewGuid(), fixture.TenantA, "Ada", "Parent", "09096735531", "ada@example.test", fixture.Clock.UtcNow);
+        var binned = new Guardian(Guid.NewGuid(), fixture.TenantA, "Bola", "Parent", "09096735532", "bola@example.test", fixture.Clock.UtcNow);
+        fixture.Db.Guardians.AddRange(active, binned);
+        await fixture.Db.SaveChangesAsync();
+        var bin = new GuardianBinService(fixture.Db, fixture.Context, new AllowedAccess(), new AllowedPermissions(), new TestFileObjectStorage(), fixture.Clock);
+        await bin.MoveAsync(actor, binned.Id);
+        fixture.Context.Set(fixture.TenantB, null);
+        var other = new Guardian(Guid.NewGuid(), fixture.TenantB, "Other", "Parent", "09096735533", "other@example.test", fixture.Clock.UtcNow);
+        fixture.Db.Guardians.Add(other);
+        await fixture.Db.SaveChangesAsync();
+        fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        var exports = new DataPortabilityService(fixture.Db, new AllowedAccess());
+
+        Assert.Contains("ada@example.test", await exports.ExportSelectedGuardiansAsync(actor, [active.Id]));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => exports.ExportSelectedGuardiansAsync(actor, [active.Id, other.Id]));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => exports.ExportSelectedGuardiansAsync(actor, [binned.Id]));
+        await Assert.ThrowsAsync<ArgumentException>(() => exports.ExportSelectedGuardiansAsync(actor, [active.Id, active.Id]));
     }
 
     [Fact]
@@ -564,6 +703,34 @@ public sealed class PhaseOneIsolationTests
         Assert.Equal("Alpha", Assert.Single(first.Items).LastName);
         Assert.Equal("Zulu", Assert.Single(second.Items).LastName);
         Assert.Equal("Ada", Assert.Single(match.Items).FirstName);
+    }
+
+    [Fact]
+    public async Task GuardianDirectory_ClassFiltersUseActiveTenantScopedEnrollments()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Context.Set(fixture.TenantA, fixture.CampusA);
+        var now = fixture.Clock.UtcNow; var stageId = Guid.NewGuid(); var levelId = Guid.NewGuid(); var otherLevelId = Guid.NewGuid(); var yearId = Guid.NewGuid(); var sectionId = Guid.NewGuid();
+        var guardian = new Guardian(Guid.NewGuid(), fixture.TenantA, "Ada", "Parent", "09096735531", "ada@example.test", now);
+        var otherGuardian = new Guardian(Guid.NewGuid(), fixture.TenantA, "Bola", "Parent", "09096735532", "bola@example.test", now);
+        var student = new Student(Guid.NewGuid(), fixture.TenantA, "STU-FILTER", "Linked", "Student", new(2015, 1, 1), null, now);
+        fixture.Db.EducationStages.Add(new EducationStage(stageId, fixture.TenantA, "Primary", "PRI", 10, now));
+        fixture.Db.ClassLevels.AddRange(new ClassLevel(levelId, fixture.TenantA, stageId, "Primary 1", "PRI1", 10, now), new ClassLevel(otherLevelId, fixture.TenantA, stageId, "Primary 2", "PRI2", 20, now));
+        fixture.Db.AcademicYears.Add(new AcademicYear(yearId, fixture.TenantA, "2026/2027", new(2026, 9, 1), new(2027, 7, 31), now));
+        fixture.Db.ClassSections.Add(new ClassSection(sectionId, fixture.TenantA, fixture.CampusA, yearId, levelId, "Primary 1 A", "PRI1-A", 30, now));
+        fixture.Db.Guardians.AddRange(guardian, otherGuardian); fixture.Db.Students.Add(student);
+        fixture.Db.StudentGuardians.Add(new StudentGuardian(fixture.TenantA, student.Id, guardian.Id, GuardianRelationshipType.Mother, true, true, true));
+        fixture.Db.Enrollments.Add(new Enrollment(Guid.NewGuid(), fixture.TenantA, student.Id, yearId, sectionId, new(2026, 9, 1), now));
+        await fixture.Db.SaveChangesAsync();
+
+        var service = fixture.Students();
+        var byLevel = await service.ListGuardiansAsync(Guid.NewGuid(), 1, 20, null, classLevelId: levelId);
+        var bySection = await service.ListGuardiansAsync(Guid.NewGuid(), 1, 20, null, classSectionId: sectionId);
+        var otherLevel = await service.ListGuardiansAsync(Guid.NewGuid(), 1, 20, null, classLevelId: otherLevelId);
+
+        Assert.Equal(guardian.Id, Assert.Single(byLevel.Items).Id);
+        Assert.Equal(guardian.Id, Assert.Single(bySection.Items).Id);
+        Assert.Empty(otherLevel.Items);
     }
 
     [Fact]

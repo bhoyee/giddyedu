@@ -339,10 +339,52 @@ public sealed class PhaseOneDomainTests
     }
 
     [Fact]
+    public void StudentBinLifecycle_PreservesIdentityAndRestoresAccessMetadata()
+    {
+        var actor = Guid.NewGuid(); var role = Guid.NewGuid(); var now = DateTimeOffset.UtcNow;
+        var student = new Student(Guid.NewGuid(), Guid.NewGuid(), "BIN-1", "Ada", "Okafor", new(2010, 1, 1), null, now);
+
+        student.MoveToBin(actor, now.AddMinutes(1), role, true);
+
+        Assert.Equal(actor, student.DeletedByUserId);
+        Assert.Equal(role, student.SuspendedStudentRoleId);
+        Assert.True(student.MembershipSuspendedForBin);
+        Assert.Throws<InvalidOperationException>(() => student.ChangeStatus(StudentStatus.Suspended));
+        student.Restore();
+        Assert.Null(student.DeletedAtUtc);
+        Assert.Null(student.DeletedByUserId);
+        Assert.Null(student.SuspendedStudentRoleId);
+        Assert.False(student.MembershipSuspendedForBin);
+    }
+
+    [Fact]
     public void StudentProgression_RequiresDistinctHistoricalEnrollments()
     {
         var progression = new StudentProgression(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), StudentProgressionType.Promotion, "Advanced to the next level", Guid.NewGuid(), DateTimeOffset.UtcNow);
         Assert.Equal(StudentProgressionType.Promotion, progression.Type);
         Assert.Equal("Advanced to the next level", progression.Reason);
+    }
+
+    [Fact]
+    public void GuardianStatus_CannotChangeWhileRecordIsInBin()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var guardian = new Guardian(Guid.NewGuid(), Guid.NewGuid(), "Ada", "Parent", "09096735531", "ada@example.test", now);
+
+        guardian.ChangeStatus(GuardianStatus.Suspended);
+        Assert.Equal(GuardianStatus.Suspended, guardian.Status);
+        guardian.MoveToBin(Guid.NewGuid(), now.AddMinutes(1), null, false);
+
+        Assert.Throws<InvalidOperationException>(() => guardian.ChangeStatus(GuardianStatus.Active));
+    }
+
+    [Fact]
+    public void StudentGuardian_RelationshipCanBeCorrectedWithoutReplacingTheLink()
+    {
+        var link = new StudentGuardian(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), GuardianRelationshipType.Relative, false, false, true);
+
+        link.ChangeRelationship(GuardianRelationshipType.Aunt);
+
+        Assert.Equal(GuardianRelationshipType.Aunt, link.Relationship);
     }
 }

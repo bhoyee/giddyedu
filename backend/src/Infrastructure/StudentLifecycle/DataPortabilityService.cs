@@ -12,7 +12,9 @@ public interface IDataPortabilityService
 {
     Task<string> ExportApplicantsAsync(Guid actor, CancellationToken ct = default);
     Task<string> ExportStudentsAsync(Guid actor, CancellationToken ct = default);
+    Task<string> ExportSelectedStudentsAsync(Guid actor, IReadOnlyCollection<Guid> ids, CancellationToken ct = default);
     Task<string> ExportGuardiansAsync(Guid actor, CancellationToken ct = default);
+    Task<string> ExportSelectedGuardiansAsync(Guid actor, IReadOnlyCollection<Guid> ids, CancellationToken ct = default);
 }
 
 public sealed class DataPortabilityService(GiddyEduDbContext db, IFeatureAccessGuard access) : IDataPortabilityService
@@ -39,12 +41,41 @@ public sealed class DataPortabilityService(GiddyEduDbContext db, IFeatureAccessG
         return output.ToString();
     }
 
+    public async Task<string> ExportSelectedStudentsAsync(Guid actor, IReadOnlyCollection<Guid> ids, CancellationToken ct = default)
+    {
+        await access.DemandAsync(actor, Permissions.StudentsManage, FeatureKeys.StudentInformation, ct);
+        if (ids is null || ids.Count is < 1 or > 100 || ids.Contains(Guid.Empty) || ids.Distinct().Count() != ids.Count)
+            throw new ArgumentException("Select between 1 and 100 distinct students.", nameof(ids));
+        var students = await db.Students.AsNoTracking().Where(x => ids.Contains(x.Id)).OrderBy(x => x.AdmissionNumber)
+            .Select(x => new { x.AdmissionNumber, x.FirstName, x.MiddleName, x.LastName, x.DateOfBirth, x.Gender, x.StudentType, x.Email, x.Phone, x.Status, x.CreatedAtUtc }).ToListAsync(ct);
+        if (students.Count != ids.Count) throw new KeyNotFoundException("One or more students were not found in this workspace.");
+        var output = Header("StudentId", "FirstName", "MiddleName", "LastName", "DateOfBirth", "Gender", "StudentType", "Email", "Phone", "Status", "AdmissionDate");
+        foreach (var student in students) Append(output, student.AdmissionNumber, student.FirstName, student.MiddleName, student.LastName,
+            student.DateOfBirth.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), student.Gender, student.StudentType.ToString(), student.Email,
+            student.Phone, student.Status.ToString(), student.CreatedAtUtc.ToString("O", CultureInfo.InvariantCulture));
+        return output.ToString();
+    }
+
     public async Task<string> ExportGuardiansAsync(Guid actor, CancellationToken ct = default)
     {
         await access.DemandAsync(actor, Permissions.GuardiansManage, FeatureKeys.GuardianManagement, ct);
         var query = db.Guardians.AsNoTracking().OrderBy(x => x.LastName).ThenBy(x => x.FirstName);
         await EnsureSizeAsync(query, ct); var output = Header("FirstName", "LastName", "Phone", "Email");
         await foreach (var row in query.Select(x => new { x.FirstName, x.LastName, x.Phone, x.Email }).AsAsyncEnumerable().WithCancellation(ct)) Append(output, row.FirstName, row.LastName, row.Phone, row.Email);
+        return output.ToString();
+    }
+
+    public async Task<string> ExportSelectedGuardiansAsync(Guid actor, IReadOnlyCollection<Guid> ids, CancellationToken ct = default)
+    {
+        await access.DemandAsync(actor, Permissions.GuardiansManage, FeatureKeys.GuardianManagement, ct);
+        if (ids is null || ids.Count is < 1 or > 100 || ids.Contains(Guid.Empty) || ids.Distinct().Count() != ids.Count)
+            throw new ArgumentException("Select between 1 and 100 distinct guardians.", nameof(ids));
+        var guardians = await db.Guardians.AsNoTracking().Where(x => ids.Contains(x.Id))
+            .OrderBy(x => x.LastName).ThenBy(x => x.FirstName)
+            .Select(x => new { x.FirstName, x.LastName, x.Phone, x.Email, x.Address }).ToListAsync(ct);
+        if (guardians.Count != ids.Count) throw new KeyNotFoundException("One or more guardians were not found in this workspace.");
+        var output = Header("FirstName", "LastName", "Phone", "Email", "Address");
+        foreach (var guardian in guardians) Append(output, guardian.FirstName, guardian.LastName, guardian.Phone, guardian.Email, guardian.Address);
         return output.ToString();
     }
 
