@@ -17,7 +17,7 @@ namespace GiddyEdu.Infrastructure.StudentLifecycle;
 public sealed record GuardianBinRow(Guid Id, string FirstName, string LastName, string Phone, string? Email,
     DateTimeOffset DeletedAtUtc, string? DeletedByName);
 public sealed record GuardianStudentLinkRow(Guid StudentId, string AdmissionNumber, string FirstName, string? MiddleName,
-    string LastName, string? ClassSectionName, string Relationship);
+    string LastName, string? ClassSectionName, string? AcademicYearName, string Relationship);
 
 public sealed class GuardianStudentLinksExistException(int studentCount, string operation)
     : InvalidOperationException($"This guardian is linked to {studentCount} student{(studentCount == 1 ? "" : "s")}. Unlink the student records before {operation}.")
@@ -81,9 +81,14 @@ public sealed class GuardianBinService(GiddyEduDbContext db, ITenantContext tena
                                        where enrollment.StudentId == student.Id && enrollment.Status == EnrollmentStatus.Active
                                        orderby enrollment.CreatedAtUtc descending
                                        select section.Name).FirstOrDefault()
+                      let academicYearName = (from enrollment in db.Enrollments.AsNoTracking()
+                                              join year in db.AcademicYears.AsNoTracking() on enrollment.AcademicYearId equals year.Id
+                                              where enrollment.StudentId == student.Id && enrollment.Status == EnrollmentStatus.Active
+                                              orderby enrollment.CreatedAtUtc descending
+                                              select year.Name).FirstOrDefault()
                       orderby student.LastName, student.FirstName, student.Id
                       select new GuardianStudentLinkRow(student.Id, student.AdmissionNumber, student.FirstName,
-                          student.MiddleName, student.LastName, className, link.Relationship.ToString()))
+                          student.MiddleName, student.LastName, className, academicYearName, link.Relationship.ToString()))
             .ToListAsync(ct);
     }
 

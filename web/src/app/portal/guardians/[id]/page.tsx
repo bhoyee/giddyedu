@@ -1,2 +1,6 @@
-import { ProfileDetail } from "@/components/profile-detail";
-export default async function GuardianDetailPage({params}:{params:Promise<{id:string}>}){const {id}=await params;return <ProfileDetail id={id} kind="Guardian" endpoint={`guardians/${id}`} backPath="/portal/guardians" title="Guardian record" fields={[{name:"firstName",label:"First name"},{name:"lastName",label:"Last name"},{name:"phone",label:"Phone"},{name:"email",label:"Email",type:"email"},{name:"address",label:"Address"}]}/>;}
+import { GuardianProfileWorkspace } from "@/components/guardian-profile-workspace";
+
+export default async function GuardianDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  return <GuardianProfileWorkspace guardianId={id} />;
+}
