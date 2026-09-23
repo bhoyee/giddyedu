@@ -4,32 +4,47 @@ using GiddyEdu.BuildingBlocks.Tenancy;
 using GiddyEdu.BuildingBlocks.Time;
 using GiddyEdu.Infrastructure.Authorization;
 using GiddyEdu.Infrastructure.Persistence;
+using GiddyEdu.Infrastructure.Storage;
 using GiddyEdu.Modules.Identity;
 using GiddyEdu.Modules.Academics.Domain;
+using GiddyEdu.Modules.Platform.Domain;
 using GiddyEdu.Modules.StudentLifecycle.Domain;
 using GiddyEdu.Modules.Subscriptions;
 using Microsoft.EntityFrameworkCore;
 
 namespace GiddyEdu.Infrastructure.StudentLifecycle;
 
-public sealed record ApplicantInput(string ApplicationNumber, string FirstName, string LastName, DateOnly DateOfBirth, string? Email, string? Phone, string? PreviousSchool, string? Source);
+public sealed record ApplicantGuardianInput(string Name, GuardianRelationshipType Relationship, string Phone, string Email, string Address, bool IsPrimary = false);
+public sealed record ApplicantGuardianInfo(Guid Id, string Name, GuardianRelationshipType Relationship, string Phone, string Email, string Address, bool IsPrimary);
+public sealed record ApplicantInput(string FirstName, string LastName, DateOnly DateOfBirth, string? Email, string? Phone, string? PreviousSchool, string? Source,
+    string? ApplicationNumber = null, string? Gender = null, Guid? ProposedClassLevelId = null, bool SubmitImmediately = false,
+    string? PreviousSchoolAddress = null, string? LastClassCompleted = null, DateOnly? LeavingDate = null, string? ReasonForLeaving = null,
+    IReadOnlyList<ApplicantGuardianInput>? Guardians = null);
 public sealed record ApplicationTransitionInput(ApplicationStatus Status);
-public sealed record ApplicantInfo(Guid Id, string ApplicationNumber, string FirstName, string LastName, DateOnly DateOfBirth, ApplicationStatus Status, Guid? StudentId);
+public sealed record ApplicantInfo(Guid Id, string ApplicationNumber, string FirstName, string LastName, DateOnly DateOfBirth, ApplicationStatus Status, Guid? StudentId,
+    string? Email, string? Phone, string? PreviousSchool, string? Source, DateTimeOffset CreatedAtUtc,
+    string? Gender, Guid? ProposedClassLevelId, string? ProposedClassLevelName,
+    string? PreviousSchoolAddress, string? LastClassCompleted, DateOnly? LeavingDate, string? ReasonForLeaving,
+    IReadOnlyList<ApplicantGuardianInfo> Guardians);
 public sealed record ConvertApplicantInput(string AdmissionNumber, Guid AcademicYearId, Guid ClassSectionId, DateOnly EnrolledOn);
-public sealed record StudentInfo(Guid Id, string AdmissionNumber, string FirstName, string LastName, DateOnly DateOfBirth, string? Email, StudentStatus Status);
+public sealed record StudentInfo(Guid Id, string AdmissionNumber, string FirstName, string? MiddleName, string LastName,
+    DateOnly DateOfBirth, string? Gender, StudentType StudentType, string? Email, string? Phone,
+    StudentStatus Status, DateTimeOffset CreatedAtUtc);
 public sealed record StudentDirectoryRow(Guid Id, string AdmissionNumber, string FirstName, string? MiddleName, string LastName,
     StudentType StudentType, StudentStatus Status, DateTimeOffset CreatedAtUtc, string? CurrentClass,
-    string? GuardianName, string? GuardianEmail, string? GuardianPhone);
-public sealed record StudentProfileInput(string FirstName, string LastName, DateOnly DateOfBirth, string? Email = null);
+    Guid? GuardianId, string? GuardianName, string? GuardianEmail, string? GuardianPhone);
+public sealed record StudentProfileInput(string FirstName, string? MiddleName, string LastName, DateOnly DateOfBirth,
+    string? Gender, StudentType StudentType, string? Email = null, string? Phone = null);
 public sealed record StudentGuardianRegistrationInput(string FirstName, string LastName, string Phone, string Email,
     string? Gender, string? Address, GuardianRelationshipType Relationship, bool IsPrimary = true,
     bool IsEmergencyContact = true, bool MayCollect = true, Guid? ExistingGuardianId = null);
 public sealed record StudentRegistrationInput(string FirstName, string? MiddleName, string LastName, DateOnly DateOfBirth,
     string Gender, StudentType StudentType, string? Email, string? Phone, Guid AcademicYearId, Guid ClassSectionId,
     DateOnly EnrolledOn, string? Address, string? MedicalInformation, string? Allergies,
-    string? SpecialEducationalNeeds, string? PrivateNotes, StudentGuardianRegistrationInput? Guardian,
+    string? SpecialEducationalNeeds, string? PrivateNotes, IReadOnlyList<StudentGuardianRegistrationInput>? Guardians,
     bool AutoGenerateStudentId = true, string? CustomStudentId = null);
-public sealed record StudentRegistrationResult(Guid StudentId, string AdmissionNumber, Guid? GuardianId, bool GuardianNeedsInvitation);
+public sealed record StudentGuardianResult(Guid GuardianId, bool NeedsInvitation);
+public sealed record StudentRegistrationResult(Guid StudentId, string AdmissionNumber, IReadOnlyList<StudentGuardianResult> Guardians);
 public sealed record GuardianStudentLinkInput(Guid StudentId, GuardianRelationshipType Relationship, bool IsPrimary = false,
     bool IsEmergencyContact = false, bool MayCollect = false);
 public sealed record GuardianInput(string FirstName, string LastName, string Phone, string? Email, string? Address = null,
@@ -43,14 +58,18 @@ public sealed record GuardianInfo(Guid Id, string FirstName, string LastName, st
     bool HasAccount = false, GuardianStatus Status = GuardianStatus.Active, IReadOnlyList<GuardianStudentSummary>? LinkedStudents = null);
 public sealed record GuardianStudentSearchResult(Guid Id, string AdmissionNumber, string FirstName, string LastName,
     string ClassLevelName, string ClassSectionName, string CampusName);
-public sealed record EnrollmentInfo(Guid Id, Guid AcademicYearId, Guid ClassSectionId, DateOnly EnrolledOn, EnrollmentStatus Status);
+public sealed record EnrollmentInfo(Guid Id, Guid AcademicYearId, Guid ClassSectionId, string AcademicYearName,
+    string ClassSectionName, DateOnly EnrolledOn, EnrollmentStatus Status);
 public sealed record EnrollmentInput(Guid AcademicYearId, Guid ClassSectionId, DateOnly EnrolledOn, EnrollmentStatus PreviousEnrollmentStatus = EnrollmentStatus.Completed);
 public sealed record StudentProgressionInput(StudentProgressionType Type, Guid AcademicYearId, Guid ClassSectionId, DateOnly EffectiveOn, string? Reason);
 public sealed record StudentDetail(StudentInfo Student, IReadOnlyList<GuardianInfo> Guardians, IReadOnlyList<EnrollmentInfo> Enrollments);
+public sealed record StudentPhotoContent(byte[] Content, string ContentType);
 public sealed record ApplicantSensitiveInput(string? Address, string? MedicalInformation, string? Allergies, string? SpecialEducationalNeeds);
 public sealed record ApplicantSensitiveInfo(string? Address, string? MedicalInformation, string? Allergies, string? SpecialEducationalNeeds, DateTimeOffset UpdatedAtUtc);
-public sealed record StudentSensitiveInput(string? Address, string? MedicalInformation, string? Allergies, string? SpecialEducationalNeeds, string? PrivateNotes);
-public sealed record StudentSensitiveInfo(string? Address, string? MedicalInformation, string? Allergies, string? SpecialEducationalNeeds, string? PrivateNotes, DateTimeOffset UpdatedAtUtc);
+public sealed record StudentSensitiveInput(string? Address, string? MedicalInformation, string? Allergies, string? SpecialEducationalNeeds,
+    string? Genotype, string? BloodGroup, decimal? WeightKg, decimal? HeightCm, string? Disability, string? PrivateNotes);
+public sealed record StudentSensitiveInfo(string? Address, string? MedicalInformation, string? Allergies, string? SpecialEducationalNeeds,
+    string? Genotype, string? BloodGroup, decimal? WeightKg, decimal? HeightCm, string? Disability, string? PrivateNotes, DateTimeOffset UpdatedAtUtc);
 public sealed record AdmissionReviewInput(decimal Score, string? ScreeningNotes);
 public sealed record AdmissionReviewInfo(decimal Score, string? ScreeningNotes, DateTimeOffset UpdatedAtUtc);
 public sealed record AdmissionInterviewInput(DateTimeOffset ScheduledAtUtc, string? Location);
@@ -70,9 +89,10 @@ public interface IStudentLifecycleService
     Task<Guid> ScheduleAdmissionInterviewAsync(Guid actor, Guid applicantId, AdmissionInterviewInput input, CancellationToken ct = default);
     Task CompleteAdmissionInterviewAsync(Guid actor, Guid interviewId, AdmissionInterviewOutcomeInput input, CancellationToken ct = default);
     Task<Guid> ConvertAsync(Guid actor, Guid applicantId, ConvertApplicantInput input, CancellationToken ct = default);
-    Task<PageResult<StudentDirectoryRow>> ListStudentsAsync(Guid actor, int page, int pageSize, string? search, CancellationToken ct = default);
+    Task<PageResult<StudentDirectoryRow>> ListStudentsAsync(Guid actor, int page, int pageSize, string? search, Guid? classLevelId = null, Guid? classSectionId = null, CancellationToken ct = default);
     Task<StudentRegistrationResult> CreateStudentAsync(Guid actor, StudentRegistrationInput input, CancellationToken ct = default);
     Task<StudentDetail> GetStudentAsync(Guid actor, Guid studentId, CancellationToken ct = default);
+    Task<StudentPhotoContent?> GetStudentPhotoAsync(Guid actor, Guid studentId, CancellationToken ct = default);
     Task UpdateStudentAsync(Guid actor, Guid studentId, StudentProfileInput input, CancellationToken ct = default);
     Task<Guid> EnrollStudentAsync(Guid actor, Guid studentId, EnrollmentInput input, CancellationToken ct = default);
     Task<Guid> ReEnrollStudentAsync(Guid actor, Guid studentId, EnrollmentInput input, CancellationToken ct = default);
@@ -93,7 +113,7 @@ public interface IStudentLifecycleService
     Task LinkGuardianAsync(Guid actor, Guid studentId, GuardianLinkInput input, CancellationToken ct = default);
 }
 
-public sealed class StudentLifecycleService(GiddyEduDbContext db, ITenantContext tenant, IFeatureAccessGuard access, IPermissionService permissionService, IClock clock) : IStudentLifecycleService
+public sealed class StudentLifecycleService(GiddyEduDbContext db, ITenantContext tenant, IFeatureAccessGuard access, IPermissionService permissionService, IFileObjectStorage storage, IClock clock) : IStudentLifecycleService
 {
     public async Task<StudentRegistrationResult> CreateStudentAsync(Guid actor, StudentRegistrationInput input, CancellationToken ct = default)
     {
@@ -102,7 +122,9 @@ public sealed class StudentLifecycleService(GiddyEduDbContext db, ITenantContext
         var campusId = tenant.CampusId ?? throw new InvalidOperationException("Select an active campus before adding a student.");
         var hasSensitiveDetails = new[] { input.Address, input.MedicalInformation, input.Allergies, input.SpecialEducationalNeeds, input.PrivateNotes }.Any(x => !string.IsNullOrWhiteSpace(x));
         if (hasSensitiveDetails) await access.DemandAsync(actor, Permissions.StudentsSensitiveManage, FeatureKeys.StudentInformation, ct);
-        if (input.Guardian is not null) await access.DemandAsync(actor, Permissions.GuardiansManage, FeatureKeys.GuardianManagement, ct);
+        var guardianInputs = input.Guardians ?? [];
+        if (guardianInputs.Count > 0) await access.DemandAsync(actor, Permissions.GuardiansManage, FeatureKeys.GuardianManagement, ct);
+        if (guardianInputs.Count(x => x.IsPrimary) > 1) throw new InvalidOperationException("Only one guardian can be marked as the primary guardian.");
         if (input.DateOfBirth >= DateOnly.FromDateTime(clock.UtcNow.UtcDateTime)) throw new ArgumentException("Date of birth must be in the past.");
         if (string.IsNullOrWhiteSpace(input.Gender) || input.Gender.Trim().Length > 30) throw new ArgumentException("Select the student's gender.");
         if (!string.IsNullOrWhiteSpace(input.Phone) && (input.Phone.Length != 11 || input.Phone.Any(x => !char.IsDigit(x)))) throw new ArgumentException("Student phone must contain exactly 11 digits.");
@@ -134,12 +156,12 @@ public sealed class StudentLifecycleService(GiddyEduDbContext db, ITenantContext
         db.Enrollments.Add(new Enrollment(Guid.NewGuid(), tenantId, studentId, input.AcademicYearId, input.ClassSectionId, input.EnrolledOn, clock.UtcNow));
         if (hasSensitiveDetails)
             db.StudentSensitiveRecords.Add(new StudentSensitiveRecord(tenantId, studentId, input.Address, input.MedicalInformation,
-                input.Allergies, input.SpecialEducationalNeeds, input.PrivateNotes, clock.UtcNow));
+                input.Allergies, input.SpecialEducationalNeeds, null, null, null, null, null, input.PrivateNotes, clock.UtcNow));
 
-        Guid? guardianId = null; var guardianNeedsInvitation = false;
-        if (input.Guardian is not null)
+        var guardianResults = new List<StudentGuardianResult>();
+        var linkedGuardianIds = new HashSet<Guid>();
+        foreach (var guardianInput in guardianInputs)
         {
-            var guardianInput = input.Guardian;
             Guardian? guardian; var guardianWasCreated = false;
             if (guardianInput.ExistingGuardianId.HasValue)
             {
@@ -165,14 +187,14 @@ public sealed class StudentLifecycleService(GiddyEduDbContext db, ITenantContext
                     || !string.Equals(guardian.LastName, guardianInput.LastName, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("These guardian contact details already exist. Search for and select the existing guardian record.");
             }
-            guardianId = guardian.Id;
-            guardianNeedsInvitation = guardianWasCreated;
+            if (!linkedGuardianIds.Add(guardian.Id)) continue;
+            guardianResults.Add(new StudentGuardianResult(guardian.Id, guardianWasCreated));
             db.StudentGuardians.Add(new StudentGuardian(tenantId, studentId, guardian.Id, guardianInput.Relationship,
                 guardianInput.IsPrimary, guardianInput.IsEmergencyContact, guardianInput.MayCollect));
         }
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
-        return new(studentId, admissionNumber, guardianId, guardianNeedsInvitation);
+        return new(studentId, admissionNumber, guardianResults);
     }
 
     private static string NormalizeCustomStudentId(string? value)
@@ -195,10 +217,55 @@ public sealed class StudentLifecycleService(GiddyEduDbContext db, ITenantContext
         throw new InvalidOperationException("A unique student number could not be generated. Try again.");
     }
     public async Task<Guid> CreateApplicantAsync(Guid actor, ApplicantInput input, CancellationToken ct = default)
-    { await DemandAsync(actor, Permissions.AdmissionsManage, ct); var id = Guid.NewGuid(); db.Applicants.Add(new Applicant(id, RequireTenant(), input.ApplicationNumber, input.FirstName, input.LastName, input.DateOfBirth, input.Email, input.Phone, input.PreviousSchool, input.Source, clock.UtcNow)); await db.SaveChangesAsync(ct); return id; }
+    {
+        await DemandAsync(actor, Permissions.AdmissionsManage, ct);
+        var guardians = input.Guardians ?? [];
+        if (guardians.Count == 0) throw new ArgumentException("At least one guardian is required.");
+        foreach (var guardian in guardians)
+        {
+            if (string.IsNullOrWhiteSpace(guardian.Name)) throw new ArgumentException("Guardian name is required.");
+            if (guardian.Phone.Length != 11 || guardian.Phone.Any(x => !char.IsDigit(x))) throw new ArgumentException("Guardian phone must contain exactly 11 digits.");
+            if (!MailAddress.TryCreate(guardian.Email, out _)) throw new ArgumentException("Enter a valid guardian email address.");
+            if (string.IsNullOrWhiteSpace(guardian.Address)) throw new ArgumentException("Guardian address is required.");
+        }
+        if (guardians.Count(x => x.IsPrimary) > 1) throw new InvalidOperationException("Only one guardian can be marked as the primary guardian.");
+
+        var tenantId = RequireTenant();
+        var id = Guid.NewGuid();
+        var applicationNumber = string.IsNullOrWhiteSpace(input.ApplicationNumber) ? $"APP-{clock.UtcNow:yyyy}-{id.ToString("N")[..10].ToUpperInvariant()}" : input.ApplicationNumber;
+        if (input.ProposedClassLevelId.HasValue && !await db.ClassLevels.AsNoTracking().AnyAsync(x => x.Id == input.ProposedClassLevelId.Value, ct))
+            throw new InvalidOperationException("The proposed class was not found.");
+        var applicant = new Applicant(id, tenantId, applicationNumber, input.FirstName, input.LastName, input.DateOfBirth, input.Email, input.Phone, input.PreviousSchool, input.Source, clock.UtcNow,
+            input.Gender, input.ProposedClassLevelId, input.PreviousSchoolAddress, input.LastClassCompleted, input.LeavingDate, input.ReasonForLeaving);
+        if (input.SubmitImmediately) applicant.Transition(ApplicationStatus.Submitted, clock.UtcNow);
+        db.Applicants.Add(applicant);
+        foreach (var guardian in guardians)
+            db.ApplicantGuardians.Add(new ApplicantGuardian(Guid.NewGuid(), tenantId, id, guardian.Name, guardian.Relationship, guardian.Phone.Trim(), guardian.Email.Trim(), guardian.Address, guardian.IsPrimary, clock.UtcNow));
+        await db.SaveChangesAsync(ct);
+        return id;
+    }
 
     public async Task<PageResult<ApplicantInfo>> ListApplicantsAsync(Guid actor, int page, int pageSize, ApplicationStatus? status, CancellationToken ct = default)
-    { await DemandAsync(actor, Permissions.AdmissionsView, ct); RequireTenant(); page = Math.Max(page, 1); pageSize = Math.Clamp(pageSize, 1, 100); var q = db.Applicants.AsNoTracking().Where(x => !status.HasValue || x.Status == status); var total = await q.LongCountAsync(ct); var items = await q.OrderByDescending(x => x.CreatedAtUtc).Skip((page - 1) * pageSize).Take(pageSize).Select(x => new ApplicantInfo(x.Id, x.ApplicationNumber, x.FirstName, x.LastName, x.DateOfBirth, x.Status, x.StudentId)).ToListAsync(ct); return new(items, page, pageSize, total); }
+    {
+        await DemandAsync(actor, Permissions.AdmissionsView, ct); RequireTenant(); page = Math.Max(page, 1); pageSize = Math.Clamp(pageSize, 1, 100);
+        var q = db.Applicants.AsNoTracking().Where(x => !status.HasValue || x.Status == status);
+        var total = await q.LongCountAsync(ct);
+        var rows = await q.OrderByDescending(x => x.CreatedAtUtc).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        var levelIds = rows.Where(x => x.ProposedClassLevelId.HasValue).Select(x => x.ProposedClassLevelId!.Value).Distinct().ToArray();
+        var levels = await db.ClassLevels.AsNoTracking().Where(x => levelIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.Name, ct);
+        var applicantIds = rows.Select(x => x.Id).ToArray();
+        var guardians = await db.ApplicantGuardians.AsNoTracking().Where(x => applicantIds.Contains(x.ApplicantId))
+            .OrderByDescending(x => x.IsPrimary).ThenBy(x => x.Name)
+            .Select(x => new { x.ApplicantId, Info = new ApplicantGuardianInfo(x.Id, x.Name, x.Relationship, x.Phone, x.Email, x.Address, x.IsPrimary) })
+            .ToListAsync(ct);
+        var guardiansByApplicant = guardians.GroupBy(x => x.ApplicantId).ToDictionary(x => x.Key, x => (IReadOnlyList<ApplicantGuardianInfo>)x.Select(item => item.Info).ToList());
+        var items = rows.Select(x => new ApplicantInfo(x.Id, x.ApplicationNumber, x.FirstName, x.LastName, x.DateOfBirth, x.Status, x.StudentId,
+            x.Email, x.Phone, x.PreviousSchool, x.Source, x.CreatedAtUtc,
+            x.Gender, x.ProposedClassLevelId, x.ProposedClassLevelId.HasValue ? levels.GetValueOrDefault(x.ProposedClassLevelId.Value) : null,
+            x.PreviousSchoolAddress, x.LastClassCompleted, x.LeavingDate, x.ReasonForLeaving,
+            guardiansByApplicant.GetValueOrDefault(x.Id, []))).ToList();
+        return new(items, page, pageSize, total);
+    }
 
     public async Task TransitionAsync(Guid actor, Guid applicantId, ApplicationTransitionInput input, CancellationToken ct = default)
     { await DemandAsync(actor, Permissions.AdmissionsManage, ct); if (input.Status is ApplicationStatus.Offered or ApplicationStatus.Accepted or ApplicationStatus.Rejected or ApplicationStatus.Converted) throw new InvalidOperationException("Offer, acceptance, rejection, and conversion must use their controlled workflows."); var applicant = await db.Applicants.SingleOrDefaultAsync(x => x.Id == applicantId, ct) ?? throw new KeyNotFoundException("Applicant was not found."); applicant.Transition(input.Status, clock.UtcNow); await db.SaveChangesAsync(ct); }
@@ -229,10 +296,10 @@ public sealed class StudentLifecycleService(GiddyEduDbContext db, ITenantContext
         await DemandAsync(actor, Permissions.AdmissionsManage, ct); await access.DemandAsync(actor, Permissions.StudentsManage, FeatureKeys.StudentInformation, ct);
         var applicant = await db.Applicants.SingleOrDefaultAsync(x => x.Id == applicantId, ct) ?? throw new KeyNotFoundException("Applicant was not found.");
         if (!await db.ClassSections.AnyAsync(x => x.Id == input.ClassSectionId && x.AcademicYearId == input.AcademicYearId && x.IsActive, ct)) throw new InvalidOperationException("The class section and academic year must belong to the current tenant and match.");
-        var id = Guid.NewGuid(); db.Students.Add(new Student(id, RequireTenant(), input.AdmissionNumber, applicant.FirstName, applicant.LastName, applicant.DateOfBirth, applicant.Id, clock.UtcNow, applicant.Email)); db.Enrollments.Add(new Enrollment(Guid.NewGuid(), RequireTenant(), id, input.AcademicYearId, input.ClassSectionId, input.EnrolledOn, clock.UtcNow)); var sensitive = await db.ApplicantSensitiveRecords.AsNoTracking().SingleOrDefaultAsync(x => x.ApplicantId == applicantId, ct); if (sensitive is not null) db.StudentSensitiveRecords.Add(new StudentSensitiveRecord(RequireTenant(), id, sensitive.Address, sensitive.MedicalInformation, sensitive.Allergies, sensitive.SpecialEducationalNeeds, null, clock.UtcNow)); applicant.MarkConverted(id, clock.UtcNow); await db.SaveChangesAsync(ct); return id;
+        var id = Guid.NewGuid(); db.Students.Add(new Student(id, RequireTenant(), input.AdmissionNumber, applicant.FirstName, applicant.LastName, applicant.DateOfBirth, applicant.Id, clock.UtcNow, applicant.Email)); db.Enrollments.Add(new Enrollment(Guid.NewGuid(), RequireTenant(), id, input.AcademicYearId, input.ClassSectionId, input.EnrolledOn, clock.UtcNow)); var sensitive = await db.ApplicantSensitiveRecords.AsNoTracking().SingleOrDefaultAsync(x => x.ApplicantId == applicantId, ct); if (sensitive is not null) db.StudentSensitiveRecords.Add(new StudentSensitiveRecord(RequireTenant(), id, sensitive.Address, sensitive.MedicalInformation, sensitive.Allergies, sensitive.SpecialEducationalNeeds, null, null, null, null, null, null, clock.UtcNow)); applicant.MarkConverted(id, clock.UtcNow); await db.SaveChangesAsync(ct); return id;
     }
 
-    public async Task<PageResult<StudentDirectoryRow>> ListStudentsAsync(Guid actor, int page, int pageSize, string? search, CancellationToken ct = default)
+    public async Task<PageResult<StudentDirectoryRow>> ListStudentsAsync(Guid actor, int page, int pageSize, string? search, Guid? classLevelId = null, Guid? classSectionId = null, CancellationToken ct = default)
     {
         await DemandAsync(actor, Permissions.StudentsView, ct); RequireTenant(); page = Math.Max(page, 1); pageSize = Math.Clamp(pageSize, 1, 100);
         var canViewGuardians = await permissionService.HasPermissionAsync(actor, Permissions.GuardiansView, ct);
@@ -244,6 +311,16 @@ public sealed class StudentLifecycleService(GiddyEduDbContext db, ITenantContext
                 || x.FirstName.ToLower().Contains(term)
                 || x.LastName.ToLower().Contains(term)
                 || x.MiddleName != null && x.MiddleName.ToLower().Contains(term));
+        }
+        if (classLevelId.HasValue || classSectionId.HasValue)
+        {
+            var matchingStudentIds = await (from enrollment in db.Enrollments.AsNoTracking()
+                                            join section in db.ClassSections.AsNoTracking() on enrollment.ClassSectionId equals section.Id
+                                            where enrollment.Status == EnrollmentStatus.Active
+                                                && (!classSectionId.HasValue || enrollment.ClassSectionId == classSectionId.Value)
+                                                && (!classLevelId.HasValue || section.ClassLevelId == classLevelId.Value)
+                                            select enrollment.StudentId).Distinct().ToListAsync(ct);
+            query = query.Where(x => matchingStudentIds.Contains(x.Id));
         }
         var total = await query.LongCountAsync(ct);
         var students = await query.OrderBy(x => x.LastName).ThenBy(x => x.FirstName).Skip((page - 1) * pageSize).Take(pageSize)
@@ -258,23 +335,44 @@ public sealed class StudentLifecycleService(GiddyEduDbContext db, ITenantContext
                      join guardian in db.Guardians.AsNoTracking() on link.GuardianId equals guardian.Id
                      where ids.Contains(link.StudentId)
                      orderby link.IsPrimary descending, guardian.LastName, guardian.FirstName
-                     select new { link.StudentId, guardian.FirstName, guardian.LastName, guardian.Email, guardian.Phone })
+                     select new { link.StudentId, guardian.Id, guardian.FirstName, guardian.LastName, guardian.Email, guardian.Phone })
                 .ToListAsync(ct)
             : [];
         var primaryGuardians = guardians.GroupBy(x => x.StudentId).ToDictionary(x => x.Key, x => x.First());
         var rows = students.Select(student => { primaryGuardians.TryGetValue(student.Id, out var guardian); return new StudentDirectoryRow(
             student.Id, student.AdmissionNumber, student.FirstName, student.MiddleName, student.LastName, student.StudentType,
-            student.Status, student.CreatedAtUtc, classes.GetValueOrDefault(student.Id),
+            student.Status, student.CreatedAtUtc, classes.GetValueOrDefault(student.Id), guardian?.Id,
             guardian is null ? null : $"{guardian.FirstName} {guardian.LastName}", guardian?.Email, guardian?.Phone); }).ToList();
         return new(rows, page, pageSize, total);
     }
 
     public async Task<StudentDetail> GetStudentAsync(Guid actor, Guid studentId, CancellationToken ct = default)
     {
-        await DemandAsync(actor, Permissions.StudentsView, ct); RequireTenant(); var canManage = await permissionService.HasPermissionAsync(actor, Permissions.StudentsManage, ct); var student = await (await ScopedStudentsAsync(actor, ct)).Where(x => x.Id == studentId).Select(x => new StudentInfo(x.Id, x.AdmissionNumber, x.FirstName, x.LastName, x.DateOfBirth, x.Email, x.Status)).SingleOrDefaultAsync(ct) ?? throw new KeyNotFoundException("Student was not found.");
+        await DemandAsync(actor, Permissions.StudentsView, ct); RequireTenant(); var canManage = await permissionService.HasPermissionAsync(actor, Permissions.StudentsManage, ct); var student = await (await ScopedStudentsAsync(actor, ct)).Where(x => x.Id == studentId).Select(x => new StudentInfo(x.Id, x.AdmissionNumber, x.FirstName, x.MiddleName, x.LastName, x.DateOfBirth, x.Gender, x.StudentType, x.Email, x.Phone, x.Status, x.CreatedAtUtc)).SingleOrDefaultAsync(ct) ?? throw new KeyNotFoundException("Student was not found.");
         var guardians = await (from link in db.StudentGuardians join guardian in db.Guardians on link.GuardianId equals guardian.Id where link.StudentId == studentId && (canManage || guardian.UserId == actor) select new GuardianInfo(guardian.Id, guardian.FirstName, guardian.LastName, guardian.Phone, guardian.Email)).ToListAsync(ct);
-        var enrollments = await db.Enrollments.AsNoTracking().Where(x => x.StudentId == studentId).OrderByDescending(x => x.EnrolledOn).Select(x => new EnrollmentInfo(x.Id, x.AcademicYearId, x.ClassSectionId, x.EnrolledOn, x.Status)).ToListAsync(ct);
+        var enrollments = await (from enrollment in db.Enrollments.AsNoTracking()
+                                 join year in db.AcademicYears.AsNoTracking() on enrollment.AcademicYearId equals year.Id
+                                 join section in db.ClassSections.AsNoTracking() on enrollment.ClassSectionId equals section.Id
+                                 where enrollment.StudentId == studentId
+                                 orderby enrollment.EnrolledOn descending
+                                 select new EnrollmentInfo(enrollment.Id, enrollment.AcademicYearId, enrollment.ClassSectionId,
+                                     year.Name, section.Name, enrollment.EnrolledOn, enrollment.Status)).ToListAsync(ct);
         return new(student, guardians, enrollments);
+    }
+
+    public async Task<StudentPhotoContent?> GetStudentPhotoAsync(Guid actor, Guid studentId, CancellationToken ct = default)
+    {
+        await DemandAsync(actor, Permissions.StudentsView, ct);
+        if (!await (await ScopedStudentsAsync(actor, ct)).AnyAsync(x => x.Id == studentId, ct))
+            throw new KeyNotFoundException("Student was not found.");
+
+        var photo = await db.StoredFiles.AsNoTracking()
+            .Where(x => x.EntityType == "Student" && x.EntityId == studentId && x.Category == "photo" && x.Status == StoredFileStatus.Available)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Select(x => new { x.ObjectKey, x.ContentType })
+            .FirstOrDefaultAsync(ct);
+        if (photo is null) return null;
+        return new StudentPhotoContent(await storage.ReadBytesAsync(photo.ObjectKey, 10 * 1024 * 1024, ct), photo.ContentType);
     }
 
     public async Task<Guid> EnrollStudentAsync(Guid actor, Guid studentId, EnrollmentInput input, CancellationToken ct = default)
@@ -321,16 +419,16 @@ public sealed class StudentLifecycleService(GiddyEduDbContext db, ITenantContext
     { await DemandAsync(actor, Permissions.StudentsManage, ct); var student = await db.Students.SingleOrDefaultAsync(x => x.Id == studentId, ct) ?? throw new KeyNotFoundException("Student was not found."); var enrollment = await db.Enrollments.SingleOrDefaultAsync(x => x.StudentId == studentId && x.Status == EnrollmentStatus.Active, ct) ?? throw new InvalidOperationException("Graduation requires an active enrolment."); enrollment.Complete(EnrollmentStatus.Completed); student.Graduate(); await db.SaveChangesAsync(ct); }
 
     public async Task UpdateStudentAsync(Guid actor, Guid studentId, StudentProfileInput input, CancellationToken ct = default)
-    { await DemandAsync(actor, Permissions.StudentsManage, ct); var student = await db.Students.SingleOrDefaultAsync(x => x.Id == studentId, ct) ?? throw new KeyNotFoundException("Student was not found."); student.UpdatePersonalInformation(input.FirstName, input.LastName, input.DateOfBirth, input.Email); await db.SaveChangesAsync(ct); }
+    { await DemandAsync(actor, Permissions.StudentsManage, ct); var student = await db.Students.SingleOrDefaultAsync(x => x.Id == studentId, ct) ?? throw new KeyNotFoundException("Student was not found."); student.UpdatePersonalInformation(input.FirstName, input.MiddleName, input.LastName, input.DateOfBirth, input.Gender, input.StudentType, input.Email, input.Phone); await db.SaveChangesAsync(ct); }
 
     public async Task WithdrawStudentAsync(Guid actor, Guid studentId, CancellationToken ct = default)
     { await DemandAsync(actor, Permissions.StudentsManage, ct); var student = await db.Students.SingleOrDefaultAsync(x => x.Id == studentId, ct) ?? throw new KeyNotFoundException("Student was not found."); student.Withdraw(); var active = await db.Enrollments.Where(x => x.StudentId == studentId && x.Status == EnrollmentStatus.Active).ToListAsync(ct); foreach (var enrollment in active) enrollment.Complete(EnrollmentStatus.Withdrawn); await db.SaveChangesAsync(ct); }
 
     public async Task<StudentSensitiveInfo?> GetStudentSensitiveAsync(Guid actor, Guid studentId, CancellationToken ct = default)
-    { await access.DemandAsync(actor, Permissions.StudentsSensitiveView, FeatureKeys.StudentInformation, ct); if (!await (await ScopedStudentsAsync(actor, ct)).AnyAsync(x => x.Id == studentId, ct)) throw new KeyNotFoundException("Student was not found."); return await db.StudentSensitiveRecords.AsNoTracking().Where(x => x.StudentId == studentId).Select(x => new StudentSensitiveInfo(x.Address, x.MedicalInformation, x.Allergies, x.SpecialEducationalNeeds, x.PrivateNotes, x.UpdatedAtUtc)).SingleOrDefaultAsync(ct); }
+    { await access.DemandAsync(actor, Permissions.StudentsSensitiveView, FeatureKeys.StudentInformation, ct); if (!await (await ScopedStudentsAsync(actor, ct)).AnyAsync(x => x.Id == studentId, ct)) throw new KeyNotFoundException("Student was not found."); return await db.StudentSensitiveRecords.AsNoTracking().Where(x => x.StudentId == studentId).Select(x => new StudentSensitiveInfo(x.Address, x.MedicalInformation, x.Allergies, x.SpecialEducationalNeeds, x.Genotype, x.BloodGroup, x.WeightKg, x.HeightCm, x.Disability, x.PrivateNotes, x.UpdatedAtUtc)).SingleOrDefaultAsync(ct); }
 
     public async Task UpsertStudentSensitiveAsync(Guid actor, Guid studentId, StudentSensitiveInput input, CancellationToken ct = default)
-    { await access.DemandAsync(actor, Permissions.StudentsSensitiveManage, FeatureKeys.StudentInformation, ct); if (!await (await ScopedStudentsAsync(actor, ct)).AnyAsync(x => x.Id == studentId, ct)) throw new KeyNotFoundException("Student was not found."); var record = await db.StudentSensitiveRecords.SingleOrDefaultAsync(x => x.StudentId == studentId, ct); if (record is null) db.StudentSensitiveRecords.Add(new StudentSensitiveRecord(RequireTenant(), studentId, input.Address, input.MedicalInformation, input.Allergies, input.SpecialEducationalNeeds, input.PrivateNotes, clock.UtcNow)); else record.Update(input.Address, input.MedicalInformation, input.Allergies, input.SpecialEducationalNeeds, input.PrivateNotes, clock.UtcNow); await db.SaveChangesAsync(ct); }
+    { await access.DemandAsync(actor, Permissions.StudentsSensitiveManage, FeatureKeys.StudentInformation, ct); if (!await (await ScopedStudentsAsync(actor, ct)).AnyAsync(x => x.Id == studentId, ct)) throw new KeyNotFoundException("Student was not found."); var record = await db.StudentSensitiveRecords.SingleOrDefaultAsync(x => x.StudentId == studentId, ct); if (record is null) db.StudentSensitiveRecords.Add(new StudentSensitiveRecord(RequireTenant(), studentId, input.Address, input.MedicalInformation, input.Allergies, input.SpecialEducationalNeeds, input.Genotype, input.BloodGroup, input.WeightKg, input.HeightCm, input.Disability, input.PrivateNotes, clock.UtcNow)); else record.Update(input.Address, input.MedicalInformation, input.Allergies, input.SpecialEducationalNeeds, input.Genotype, input.BloodGroup, input.WeightKg, input.HeightCm, input.Disability, input.PrivateNotes, clock.UtcNow); await db.SaveChangesAsync(ct); }
 
     public async Task<Guid> CreateGuardianAsync(Guid actor, GuardianInput input, CancellationToken ct = default)
     {

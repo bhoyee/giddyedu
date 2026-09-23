@@ -3,6 +3,7 @@ using System;
 using GiddyEdu.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GiddyEdu.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(GiddyEduDbContext))]
-    partial class GiddyEduDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260923071651_AddApplicantGuardiansTable")]
+    partial class AddApplicantGuardiansTable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1700,17 +1703,10 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
 
-                    b.Property<string>("LastClassCompleted")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
                     b.Property<string>("LastName")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
-
-                    b.Property<DateOnly?>("LeavingDate")
-                        .HasColumnType("date");
 
                     b.Property<string>("Phone")
                         .HasMaxLength(30)
@@ -1720,16 +1716,11 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
-                    b.Property<string>("PreviousSchoolAddress")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<Guid?>("ProposedClassLevelId")
+                    b.Property<Guid?>("ProposedAcademicYearId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("ReasonForLeaving")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
+                    b.Property<Guid?>("ProposedClassSectionId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Source")
                         .HasMaxLength(100)

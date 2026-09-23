@@ -189,6 +189,7 @@ public static class PhaseOneEndpoints
         students.MapDelete("/{studentId:guid}/permanent", PermanentlyDeleteStudentAsync);
         students.MapPost("/", CreateStudentAsync);
         students.MapGet("/{studentId:guid}", GetStudentAsync);
+        students.MapGet("/{studentId:guid}/photo", GetStudentPhotoAsync).RequireRateLimiting("data-transfer");
         students.MapPut("/{studentId:guid}", UpdateStudentAsync);
         students.MapPost("/{studentId:guid}/enrollments", EnrollStudentAsync);
         students.MapPost("/{studentId:guid}/re-enrolments", ReEnrollStudentAsync);
@@ -541,7 +542,7 @@ public static class PhaseOneEndpoints
     private static async Task<IResult> ListGuardianImportsAsync(ClaimsPrincipal principal, IProfileImportService service, CancellationToken ct) => Results.Ok(await service.ListGuardiansAsync(UserId(principal), ct));
     private static async Task<IResult> DownloadStudentImportErrorsAsync(Guid operationId, ClaimsPrincipal principal, IProfileImportService service, IAuditWriter audit, CancellationToken ct) => await DownloadImportErrorsAsync(operationId, principal, service.GetStudentErrorDownloadAsync, "Student.ImportErrorsDownload", audit, ct);
     private static async Task<IResult> DownloadGuardianImportErrorsAsync(Guid operationId, ClaimsPrincipal principal, IProfileImportService service, IAuditWriter audit, CancellationToken ct) => await DownloadImportErrorsAsync(operationId, principal, service.GetGuardianErrorDownloadAsync, "Guardian.ImportErrorsDownload", audit, ct);
-    private static async Task<IResult> ListStudentsAsync(int page, int pageSize, string? search, ClaimsPrincipal principal, IStudentLifecycleService service, CancellationToken ct) => Results.Ok(await service.ListStudentsAsync(UserId(principal), page, pageSize == 0 ? 25 : pageSize, search, ct));
+    private static async Task<IResult> ListStudentsAsync(int page, int pageSize, string? search, Guid? classLevelId, Guid? classSectionId, ClaimsPrincipal principal, IStudentLifecycleService service, CancellationToken ct) => Results.Ok(await service.ListStudentsAsync(UserId(principal), page, pageSize == 0 ? 25 : pageSize, search, classLevelId, classSectionId, ct));
     private static async Task<IResult> CreateStudentAsync(StudentRegistrationInput input, ClaimsPrincipal principal, IStudentLifecycleService service, IAuditWriter audit, CancellationToken ct)
     {
         var actor = UserId(principal); var created = await service.CreateStudentAsync(actor, input, ct);
@@ -549,6 +550,11 @@ public static class PhaseOneEndpoints
         return Results.Created($"/api/v1/students/{created.StudentId}", created);
     }
     private static async Task<IResult> GetStudentAsync(Guid studentId, ClaimsPrincipal principal, IStudentLifecycleService service, CancellationToken ct) => Results.Ok(await service.GetStudentAsync(UserId(principal), studentId, ct));
+    private static async Task<IResult> GetStudentPhotoAsync(Guid studentId, ClaimsPrincipal principal, IStudentLifecycleService service, CancellationToken ct)
+    {
+        var photo = await service.GetStudentPhotoAsync(UserId(principal), studentId, ct);
+        return photo is null ? Results.NoContent() : Results.File(photo.Content, photo.ContentType);
+    }
     private sealed record StudentSelectionInput(Guid[] StudentIds);
     private sealed record StudentStatusInput(Guid[] StudentIds, StudentStatus Status);
     private static async Task<IResult> CountStudentBinAsync(ClaimsPrincipal principal, IStudentBinService service, CancellationToken ct) => Results.Ok(new { count = await service.CountAsync(UserId(principal), ct) });

@@ -47,14 +47,35 @@ public enum AdmissionResponse { Pending, Accepted, Declined }
 public sealed class Applicant : ITenantOwned
 {
     private Applicant() { }
-    public Applicant(Guid id, Guid tenantId, string applicationNumber, string firstName, string lastName, DateOnly dateOfBirth, string? email, string? phone, string? previousSchool, string? source, DateTimeOffset now)
-    { if (id == Guid.Empty || tenantId == Guid.Empty) throw new ArgumentException("Applicant identifiers are required."); Id = id; TenantId = tenantId; ApplicationNumber = Required(applicationNumber, 50).ToUpperInvariant(); FirstName = Required(firstName, 100); LastName = Required(lastName, 100); DateOfBirth = dateOfBirth; Email = Optional(email, 320); Phone = Optional(phone, 30); PreviousSchool = Optional(previousSchool, 200); Source = Optional(source, 100); Status = ApplicationStatus.Draft; CreatedAtUtc = now; }
-    public Guid Id { get; private set; } public Guid TenantId { get; private set; } public string ApplicationNumber { get; private set; } = null!; public string FirstName { get; private set; } = null!; public string LastName { get; private set; } = null!; public DateOnly DateOfBirth { get; private set; } public string? Email { get; private set; } public string? Phone { get; private set; } public string? PreviousSchool { get; private set; } public string? Source { get; private set; } public ApplicationStatus Status { get; private set; } public Guid? StudentId { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; } public DateTimeOffset? UpdatedAtUtc { get; private set; }
+    public Applicant(Guid id, Guid tenantId, string applicationNumber, string firstName, string lastName, DateOnly dateOfBirth, string? email, string? phone, string? previousSchool, string? source, DateTimeOffset now,
+        string? gender = null, Guid? proposedClassLevelId = null,
+        string? previousSchoolAddress = null, string? lastClassCompleted = null, DateOnly? leavingDate = null, string? reasonForLeaving = null)
+    { if (id == Guid.Empty || tenantId == Guid.Empty) throw new ArgumentException("Applicant identifiers are required."); Id = id; TenantId = tenantId; ApplicationNumber = Required(applicationNumber, 50).ToUpperInvariant(); FirstName = Required(firstName, 100); LastName = Required(lastName, 100); DateOfBirth = dateOfBirth; Email = Optional(email, 320); Phone = Optional(phone, 30); PreviousSchool = Optional(previousSchool, 200); Source = Optional(source, 100);
+        Gender = Optional(gender, 30); ProposedClassLevelId = proposedClassLevelId;
+        PreviousSchoolAddress = Optional(previousSchoolAddress, 500); LastClassCompleted = Optional(lastClassCompleted, 100); LeavingDate = leavingDate; ReasonForLeaving = Optional(reasonForLeaving, 500);
+        Status = ApplicationStatus.Draft; CreatedAtUtc = now; }
+    public Guid Id { get; private set; } public Guid TenantId { get; private set; } public string ApplicationNumber { get; private set; } = null!; public string FirstName { get; private set; } = null!; public string LastName { get; private set; } = null!; public DateOnly DateOfBirth { get; private set; } public string? Email { get; private set; } public string? Phone { get; private set; } public string? PreviousSchool { get; private set; } public string? Source { get; private set; }
+    public string? Gender { get; private set; } public Guid? ProposedClassLevelId { get; private set; }
+    public string? PreviousSchoolAddress { get; private set; } public string? LastClassCompleted { get; private set; } public DateOnly? LeavingDate { get; private set; } public string? ReasonForLeaving { get; private set; }
+    public ApplicationStatus Status { get; private set; } public Guid? StudentId { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; } public DateTimeOffset? UpdatedAtUtc { get; private set; }
     public void Transition(ApplicationStatus next, DateTimeOffset now) { if (!Allowed(Status, next)) throw new InvalidOperationException($"Application cannot move from {Status} to {next}."); Status = next; UpdatedAtUtc = now; }
     public void MarkConverted(Guid studentId, DateTimeOffset now) { if (Status != ApplicationStatus.Accepted) throw new InvalidOperationException("Only accepted applicants can become students."); if (studentId == Guid.Empty) throw new ArgumentException("Student identifier is required."); StudentId = studentId; Status = ApplicationStatus.Converted; UpdatedAtUtc = now; }
     private static bool Allowed(ApplicationStatus current, ApplicationStatus next) => (current, next) switch { (ApplicationStatus.Draft, ApplicationStatus.Submitted) => true, (ApplicationStatus.Submitted, ApplicationStatus.UnderReview) => true, (ApplicationStatus.UnderReview, ApplicationStatus.Waitlisted or ApplicationStatus.Offered or ApplicationStatus.Rejected) => true, (ApplicationStatus.Waitlisted, ApplicationStatus.Offered or ApplicationStatus.Rejected) => true, (ApplicationStatus.Offered, ApplicationStatus.Accepted or ApplicationStatus.Rejected) => true, (_, ApplicationStatus.Withdrawn) when current != ApplicationStatus.Converted => true, _ => false };
     private static string Required(string value, int max) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > max ? throw new ArgumentException($"Value is required and must not exceed {max} characters.") : value.Trim();
     private static string? Optional(string? value, int max) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length > max ? throw new ArgumentException($"Value must not exceed {max} characters.") : value.Trim();
+}
+
+// Contact-only record captured before conversion. Guardian (the canonical entity) is defined as
+// an adult with a relationship to a Student, so applicant-stage guardians are not yet linked to it.
+public sealed class ApplicantGuardian : ITenantOwned
+{
+    private ApplicantGuardian() { }
+    public ApplicantGuardian(Guid id, Guid tenantId, Guid applicantId, string name, GuardianRelationshipType relationship, string phone, string email, string address, bool isPrimary, DateTimeOffset now)
+    { if (id == Guid.Empty || tenantId == Guid.Empty || applicantId == Guid.Empty) throw new ArgumentException("Applicant guardian identifiers are required."); Id = id; TenantId = tenantId; ApplicantId = applicantId; Name = Required(name, 200); Relationship = relationship; Phone = Required(phone, 30); Email = Required(email, 320); Address = Required(address, 1000); IsPrimary = isPrimary; CreatedAtUtc = now; }
+    public Guid Id { get; private set; } public Guid TenantId { get; private set; } public Guid ApplicantId { get; private set; }
+    public string Name { get; private set; } = null!; public GuardianRelationshipType Relationship { get; private set; } public string Phone { get; private set; } = null!; public string Email { get; private set; } = null!; public string Address { get; private set; } = null!;
+    public bool IsPrimary { get; private set; } public DateTimeOffset CreatedAtUtc { get; private set; }
+    private static string Required(string value, int max) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > max ? throw new ArgumentException($"Value is required and must not exceed {max} characters.") : value.Trim();
 }
 
 public sealed class AdmissionOffer : ITenantOwned
@@ -76,7 +97,8 @@ public sealed class Student : ITenantOwned
     public DateTimeOffset? DeletedAtUtc { get; private set; } public Guid? DeletedByUserId { get; private set; }
     public Guid? SuspendedStudentRoleId { get; private set; } public bool MembershipSuspendedForBin { get; private set; }
     public void CompleteRegistration(string? middleName, string? gender, StudentType studentType, string? phone) { MiddleName = Optional(middleName, 100); Gender = Optional(gender, 30); StudentType = studentType; Phone = Optional(phone, 30); }
-    public void UpdatePersonalInformation(string firstName, string lastName, DateOnly dateOfBirth, string? email = null) { FirstName = Required(firstName, 100); LastName = Required(lastName, 100); DateOfBirth = dateOfBirth; Email = Optional(email, 320); }
+    public void UpdatePersonalInformation(string firstName, string? middleName, string lastName, DateOnly dateOfBirth, string? gender, StudentType studentType, string? email = null, string? phone = null)
+    { FirstName = Required(firstName, 100); MiddleName = Optional(middleName, 100); LastName = Required(lastName, 100); DateOfBirth = dateOfBirth; Gender = Optional(gender, 30); StudentType = studentType; Email = Optional(email, 320); Phone = Optional(phone, 30); }
     public void LinkUser(Guid userId) { if (userId == Guid.Empty) throw new ArgumentException("User identifier is required.", nameof(userId)); if (UserId.HasValue && UserId != userId) throw new InvalidOperationException("Student is already linked to another account."); UserId = userId; }
     public void Withdraw() { if (Status != StudentStatus.Active) throw new InvalidOperationException("Only active students can be withdrawn."); Status = StudentStatus.Withdrawn; }
     public void ReactivateForReturn() { if (Status == StudentStatus.Withdrawn) Status = StudentStatus.Active; else if (Status != StudentStatus.Active) throw new InvalidOperationException("Only active or withdrawn students can return for re-enrolment."); }
@@ -143,9 +165,20 @@ public sealed class ApplicantSensitiveRecord : ITenantOwned
 public sealed class StudentSensitiveRecord : ITenantOwned
 {
     private StudentSensitiveRecord() { }
-    public StudentSensitiveRecord(Guid tenantId, Guid studentId, string? address, string? medicalInformation, string? allergies, string? specialEducationalNeeds, string? privateNotes, DateTimeOffset now) { TenantId = tenantId; StudentId = studentId; Update(address, medicalInformation, allergies, specialEducationalNeeds, privateNotes, now); }
-    public Guid TenantId { get; private set; } public Guid StudentId { get; private set; } public string? Address { get; private set; } public string? MedicalInformation { get; private set; } public string? Allergies { get; private set; } public string? SpecialEducationalNeeds { get; private set; } public string? PrivateNotes { get; private set; } public DateTimeOffset UpdatedAtUtc { get; private set; }
-    public void Update(string? address, string? medicalInformation, string? allergies, string? specialEducationalNeeds, string? privateNotes, DateTimeOffset now) { Address = Limit(address, 1000); MedicalInformation = Limit(medicalInformation, 2000); Allergies = Limit(allergies, 1000); SpecialEducationalNeeds = Limit(specialEducationalNeeds, 2000); PrivateNotes = Limit(privateNotes, 2000); UpdatedAtUtc = now; }
+    public StudentSensitiveRecord(Guid tenantId, Guid studentId, string? address, string? medicalInformation, string? allergies, string? specialEducationalNeeds,
+        string? genotype, string? bloodGroup, decimal? weightKg, decimal? heightCm, string? disability, string? privateNotes, DateTimeOffset now)
+    { TenantId = tenantId; StudentId = studentId; Update(address, medicalInformation, allergies, specialEducationalNeeds, genotype, bloodGroup, weightKg, heightCm, disability, privateNotes, now); }
+    public Guid TenantId { get; private set; } public Guid StudentId { get; private set; } public string? Address { get; private set; } public string? MedicalInformation { get; private set; } public string? Allergies { get; private set; } public string? SpecialEducationalNeeds { get; private set; }
+    public string? Genotype { get; private set; } public string? BloodGroup { get; private set; } public decimal? WeightKg { get; private set; } public decimal? HeightCm { get; private set; } public string? Disability { get; private set; }
+    public string? PrivateNotes { get; private set; } public DateTimeOffset UpdatedAtUtc { get; private set; }
+    public void Update(string? address, string? medicalInformation, string? allergies, string? specialEducationalNeeds, string? genotype, string? bloodGroup,
+        decimal? weightKg, decimal? heightCm, string? disability, string? privateNotes, DateTimeOffset now)
+    {
+        Address = Limit(address, 1000); MedicalInformation = Limit(medicalInformation, 2000); Allergies = Limit(allergies, 1000); SpecialEducationalNeeds = Limit(specialEducationalNeeds, 2000);
+        Genotype = Limit(genotype, 10)?.ToUpperInvariant(); BloodGroup = Limit(bloodGroup, 10)?.ToUpperInvariant(); WeightKg = Positive(weightKg, 300, nameof(weightKg)); HeightCm = Positive(heightCm, 250, nameof(heightCm)); Disability = Limit(disability, 100);
+        PrivateNotes = Limit(privateNotes, 2000); UpdatedAtUtc = now;
+    }
+    private static decimal? Positive(decimal? value, decimal max, string name) => value is null ? null : value <= 0 || value > max ? throw new ArgumentException($"{name} is outside the permitted range.", name) : value;
     private static string? Limit(string? value, int max) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length > max ? throw new ArgumentException($"Value must not exceed {max} characters.") : value.Trim();
 }
 

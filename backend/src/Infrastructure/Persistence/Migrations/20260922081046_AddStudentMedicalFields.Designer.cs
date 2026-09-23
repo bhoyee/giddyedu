@@ -3,6 +3,7 @@ using System;
 using GiddyEdu.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GiddyEdu.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(GiddyEduDbContext))]
-    partial class GiddyEduDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260922081046_AddStudentMedicalFields")]
+    partial class AddStudentMedicalFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1696,21 +1699,10 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<string>("Gender")
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<string>("LastClassCompleted")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
                     b.Property<string>("LastName")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
-
-                    b.Property<DateOnly?>("LeavingDate")
-                        .HasColumnType("date");
 
                     b.Property<string>("Phone")
                         .HasMaxLength(30)
@@ -1719,17 +1711,6 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                     b.Property<string>("PreviousSchool")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
-
-                    b.Property<string>("PreviousSchoolAddress")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<Guid?>("ProposedClassLevelId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ReasonForLeaving")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
 
                     b.Property<string>("Source")
                         .HasMaxLength(100)
@@ -1753,56 +1734,6 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Applicants", "giddyedu");
-                });
-
-            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.ApplicantGuardian", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Address")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<Guid>("ApplicantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Email")
-                        .IsRequired()
-                        .HasMaxLength(320)
-                        .HasColumnType("character varying(320)");
-
-                    b.Property<bool>("IsPrimary")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("Phone")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<int>("Relationship")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasAlternateKey("TenantId", "Id");
-
-                    b.HasIndex("TenantId", "ApplicantId");
-
-                    b.ToTable("ApplicantGuardians", "giddyedu");
                 });
 
             modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.ApplicantSensitiveRecord", b =>
@@ -3051,16 +2982,6 @@ namespace GiddyEdu.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("GiddyEdu.Modules.StudentLifecycle.Domain.ApplicantGuardian", b =>
-                {
-                    b.HasOne("GiddyEdu.Modules.StudentLifecycle.Domain.Applicant", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "ApplicantId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

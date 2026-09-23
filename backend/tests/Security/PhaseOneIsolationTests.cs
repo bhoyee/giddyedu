@@ -399,10 +399,31 @@ public sealed class PhaseOneIsolationTests
     public async Task Applicants_AreTenantIsolated()
     {
         await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
-        await fixture.Students().CreateApplicantAsync(Guid.NewGuid(), new("APP-A", "Ngozi", "Ibe", new(2015, 1, 1), null, null, null, null));
+        await fixture.Students().CreateApplicantAsync(Guid.NewGuid(), new("Ngozi", "Ibe", new(2015, 1, 1), null, null, null, null, ApplicationNumber: "APP-A",
+            Guardians: [new("Guardian One", GuardianRelationshipType.Parent, "08011112222", "guardian@example.test", "1 Test Street")]));
         fixture.Context.Set(fixture.TenantB, null);
         var result = await fixture.Students().ListApplicantsAsync(Guid.NewGuid(), 1, 25, null);
         Assert.Empty(result.Items);
+    }
+
+    [Fact]
+    public async Task ApplicantGuardians_AreTenantIsolatedAndRequiredOnCreation()
+    {
+        await using var fixture = await Fixture.CreateAsync(); fixture.Context.Set(fixture.TenantA, null);
+        var actor = Guid.NewGuid();
+        var service = fixture.Students();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateApplicantAsync(actor,
+            new("Chika", "Eze", new(2015, 6, 1), null, null, null, null)));
+
+        var applicantId = await service.CreateApplicantAsync(actor, new("Chika", "Eze", new(2015, 6, 1), null, null, null, null,
+            Guardians: [new("Amara Eze", GuardianRelationshipType.Mother, "08033445566", "amara.eze@example.test", "12 Palm Avenue", IsPrimary: true)]));
+        Assert.True(await fixture.Db.ApplicantGuardians.AnyAsync(x => x.ApplicantId == applicantId && x.Name == "Amara Eze"));
+
+        fixture.Context.Set(fixture.TenantB, null);
+        Assert.False(await fixture.Db.ApplicantGuardians.AnyAsync(x => x.ApplicantId == applicantId));
+        var crossTenantResult = await fixture.Students().ListApplicantsAsync(Guid.NewGuid(), 1, 25, null);
+        Assert.Empty(crossTenantResult.Items);
     }
 
     [Fact]
@@ -433,7 +454,7 @@ public sealed class PhaseOneIsolationTests
         fixture.Db.Students.Add(new Student(studentId, fixture.TenantA, "STU-A", "Sam", "Student", new(2014, 1, 1), null, now, "sam@example.test"));
         fixture.Db.Guardians.Add(new Guardian(Guid.NewGuid(), fixture.TenantA, "Grace", "Guardian", "0802", "grace@example.test", now));
         fixture.Db.ApplicantSensitiveRecords.Add(new ApplicantSensitiveRecord(fixture.TenantA, applicantId, "SECRET-APPLICANT-ADDRESS", "SECRET-MEDICAL", "SECRET-ALLERGY", "SECRET-SEN", now));
-        fixture.Db.StudentSensitiveRecords.Add(new StudentSensitiveRecord(fixture.TenantA, studentId, "SECRET-STUDENT-ADDRESS", "SECRET-STUDENT-MEDICAL", null, null, "SECRET-PRIVATE-NOTE", now));
+        fixture.Db.StudentSensitiveRecords.Add(new StudentSensitiveRecord(fixture.TenantA, studentId, "SECRET-STUDENT-ADDRESS", "SECRET-STUDENT-MEDICAL", null, null, null, null, null, null, null, "SECRET-PRIVATE-NOTE", now));
         await fixture.Db.SaveChangesAsync();
         fixture.Context.Set(fixture.TenantB, null);
         fixture.Db.Students.Add(new Student(Guid.NewGuid(), fixture.TenantB, "STU-B", "Other", "Tenant", new(2014, 1, 1), null, now)); await fixture.Db.SaveChangesAsync();
@@ -490,7 +511,7 @@ public sealed class PhaseOneIsolationTests
         var actor = Guid.NewGuid(); var ownId = Guid.NewGuid(); var otherId = Guid.NewGuid();
         var own = new Student(ownId, fixture.TenantA, "OWN-S", "Own", "Student", new(2015, 1, 1), null, fixture.Clock.UtcNow); own.LinkUser(actor);
         fixture.Db.Students.AddRange(own, new Student(otherId, fixture.TenantA, "OTHER-S", "Other", "Student", new(2015, 1, 1), null, fixture.Clock.UtcNow));
-        fixture.Db.StudentSensitiveRecords.AddRange(new StudentSensitiveRecord(fixture.TenantA, ownId, "Own address", null, null, null, null, fixture.Clock.UtcNow), new StudentSensitiveRecord(fixture.TenantA, otherId, "Other address", null, null, null, null, fixture.Clock.UtcNow)); await fixture.Db.SaveChangesAsync();
+        fixture.Db.StudentSensitiveRecords.AddRange(new StudentSensitiveRecord(fixture.TenantA, ownId, "Own address", null, null, null, null, null, null, null, null, null, fixture.Clock.UtcNow), new StudentSensitiveRecord(fixture.TenantA, otherId, "Other address", null, null, null, null, null, null, null, null, null, fixture.Clock.UtcNow)); await fixture.Db.SaveChangesAsync();
         var permissions = new ViewOnlyPermissions(); var students = fixture.Students(permissions);
         var documents = new PhaseOneDocumentService(fixture.Db, new AllowedAccess(), permissions, new UnusedFileService());
 
@@ -565,13 +586,14 @@ public sealed class PhaseOneIsolationTests
         var registration = new StudentRegistrationInput(
             "Tomi", "K", "Student", new DateOnly(2014, 2, 3), "Female", StudentType.Day, null, null,
             yearId, sectionId, new DateOnly(2026, 9, 7), "School Road", null, null, null, null,
-            new StudentGuardianRegistrationInput("Ada", "Parent", "09096735531", "ada@example.test", "Female",
-                "School Road", GuardianRelationshipType.Mother));
+            [new StudentGuardianRegistrationInput("Ada", "Parent", "09096735531", "ada@example.test", "Female",
+                "School Road", GuardianRelationshipType.Mother)]);
         var result = await fixture.Students().CreateStudentAsync(Guid.NewGuid(), registration);
 
         Assert.StartsWith("STU-", result.AdmissionNumber);
-        Assert.Equal(existingGuardian.Id, result.GuardianId);
-        Assert.False(result.GuardianNeedsInvitation);
+        var guardianResult = Assert.Single(result.Guardians);
+        Assert.Equal(existingGuardian.Id, guardianResult.GuardianId);
+        Assert.False(guardianResult.NeedsInvitation);
         Assert.Equal(1, await fixture.Db.Guardians.CountAsync());
         Assert.True(await fixture.Db.Enrollments.AnyAsync(x => x.StudentId == result.StudentId && x.ClassSectionId == sectionId));
         Assert.True(await fixture.Db.StudentGuardians.AnyAsync(x => x.StudentId == result.StudentId && x.GuardianId == existingGuardian.Id));
@@ -900,7 +922,7 @@ public sealed class PhaseOneIsolationTests
         public AcademicStructureService Academics() => new(Db, Context, new AllowedAccess(), Clock);
         public SchoolAdministrationService Schools() => new(Db, Context, new AllowedAccess(), new UnusedFileService(), Clock);
         public StaffService Staff(IPermissionService? permissions = null) => new(Db, Context, new AllowedAccess(), permissions ?? new AllowedPermissions(), Clock, new TestFileObjectStorage());
-        public StudentLifecycleService Students(IPermissionService? permissions = null) => new(Db, Context, new AllowedAccess(), permissions ?? new AllowedPermissions(), Clock);
+        public StudentLifecycleService Students(IPermissionService? permissions = null) => new(Db, Context, new AllowedAccess(), permissions ?? new AllowedPermissions(), new TestFileObjectStorage(), Clock);
         public ValueTask DisposeAsync() => Db.DisposeAsync();
         public static async Task<Fixture> CreateAsync()
         {
